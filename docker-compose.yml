@@ -13,11 +13,15 @@ services:
       context: ./iedon-net-api
       dockerfile: Dockerfile
     restart: unless-stopped
+    depends_on:
+      - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./config/auth42-cred:/data/auth42-cred
       - ./config/config.js:/usr/src/app/config.js
       - /var/log/peerapi:/usr/src/app/logs
       # - /var/run/peerapi:/var/run/peerapi
-    #ports:
-    #  - "3000:3000/tcp"
-    #  - "4222:4222/tcp"
+    ports:
+      - "3000:3000/tcp"
+      # - "4222:4222/tcp"

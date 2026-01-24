@@ -54,7 +54,9 @@ registerRoutes(app);
       useWhois(app, app.settings.whoisSettings),
       useFetch(app, app.settings.fetchSettings),
       useToken(app, app.settings.tokenSettings),
-      useSshAuthServer(app, app.settings.sshAuthServerSettings),
+      ...(app.settings?.sshAuthServerSettings?.enabled === false
+        ? []
+        : [useSshAuthServer(app, app.settings.sshAuthServerSettings)]),
       useOpenAuth(app, app.settings.openAuthSettings)
     ]);
 
