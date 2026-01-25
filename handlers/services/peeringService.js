@@ -1,4 +1,5 @@
 import { makeResponse, RESPONSE_CODE } from "../../common/packet.js";
+import { randomUUID } from "crypto";
 import {
   nullOrEmpty,
   IPV4_REGEX,
@@ -602,6 +603,7 @@ export async function setPeeringSession(c, modify = false) {
       if (modify || capacity - routerSessionCount > 0) {
         let ifname = "";
         let session = null;
+        let sessionUuid = _sessionUuid; // Use existing UUID for modify
         const peerAsn = isAdmin ? _asn : Number(c.var.state.asn);
         if (modify) {
           session = await getBgpSession(c, _sessionUuid, transaction);
@@ -615,20 +617,13 @@ export async function setPeeringSession(c, modify = false) {
           }
           ifname = session.interface;
         } else {
-          const mySessionCount = await c.var.app.models.bgpSessions.count({
-            where: {
-              router: routerUuid,
-              asn: peerAsn,
-            },
-            transaction,
-          });
-
-          if (mySessionCount > 0xff) {
-            await transaction.rollback();
-            return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
-          }
-
-          ifname = `dn${peerAsn.toString(36)}${mySessionCount.toString(16)}`;
+          // Generate UUID for new session
+          sessionUuid = randomUUID();
+          
+          // Extract last 8 characters of UUID for interface naming
+          const uuidSuffix = sessionUuid.slice(-8);
+          const asnSuffix = (peerAsn % 100000).toString();
+          ifname = `as${asnSuffix}-${uuidSuffix}`;
 
           // Check if the session with specific ifname already exists
           const checkIfNameExist = async (interfaceName) => {
@@ -643,29 +638,15 @@ export async function setPeeringSession(c, modify = false) {
             return ifNameCount !== 0;
           };
 
-          // Already taken
+          // UUID collision is extremely unlikely, but check anyway
           if (await checkIfNameExist(ifname)) {
-            // try - 1
-            ifname = `dn${peerAsn.toString(36)}${(mySessionCount - 1).toString(
-              16
-            )}`;
-
-            // try + 1
-            if (await checkIfNameExist(ifname)) {
-              ifname = `dn${peerAsn.toString(36)}${(
-                mySessionCount + 1
-              ).toString(16)}`;
-            }
-
-            // Something wrong
-            if (await checkIfNameExist(ifname)) {
-              await transaction.rollback();
-              return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
-            }
+            await transaction.rollback();
+            return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
           }
         }
 
         const options = {
+          uuid: sessionUuid, // Use the pre-generated or existing UUID
           router: routerUuid,
           asn: peerAsn,
           status: routerQuery.dataValues.auto_peering
