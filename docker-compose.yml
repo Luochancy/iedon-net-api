@@ -4,24 +4,28 @@ services:
   redis:
     image: redis:latest
     container_name: redis_container
-    ports:
-      - "6379:6379"
     volumes:
       - redis_peerapi_data:/data
   peerapi:
     build:
-      context: ./iedon-net-api
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - redis
+    dns:
+      - 172.20.0.53 	# dn42-dns
+      - 8.8.8.8
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./config/auth42-cred:/data/auth42-cred
-      - ./config/config.js:/usr/src/app/config.js
+      - ./config.js:/usr/src/app/config.js
+      - ./auth42-cred:/data/auth42-cred
       - /var/log/peerapi:/usr/src/app/logs
       # - /var/run/peerapi:/var/run/peerapi
     ports:
       - "3000:3000/tcp"
       # - "4222:4222/tcp"
+
+volumes:
+  redis_peerapi_data:

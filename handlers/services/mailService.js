@@ -22,27 +22,16 @@ export async function sendAuthMail(c, to, person, code) {
   if (!template) return false;
 
   const html = template
-    .replaceAll("{{title}}", "iEdon DN42 Authentication")
+    .replaceAll("{{title}}", "LuocyNet DN42 Authentication")
     .replaceAll(
       "{{content}}",
       `<p>Hi ${person},</p>
-      <p>Your challenge code is:</p>
+      <p>您正在登录 Auto Peer 系统。<br />You are signing in to Auto Peer.</p>
+      <p>您的挑战文本是：<br />Your challenge text is:</p>
       <div class="code">${code}</div>
-      <p>
-        You're receiving this email because you've initiated an authentication request.
-        <br />
-        Please do not reply - this message was sent automatically.
-      </p>
-      <p>Have a great day!</p>`
+      <p>请尽快输入挑战文本。<br />Please enter the challenge text as soon as possible.</p>
+      <p>如非本人操作请忽略此邮件。<br />If you did not request this email, please ignore it.</p>`
     );
 
-  return await c.var.app.mail.send(to, "Your DN42 Authentication Code", html, {
-    attachments: [
-      {
-        filename: "logo.png",
-        path: "./logo.png",
-        cid: "logo",
-      },
-    ],
-  });
+  return await c.var.app.mail.send(to, "Your DN42 Authentication Code", html);
 }
