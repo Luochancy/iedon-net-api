@@ -640,9 +640,10 @@ export async function setPeeringSession(c, modify = false) {
           sessionUuid = randomUUID();
           
           // Extract last 6 characters of UUID for interface naming (15 char limit)
+          // Use underscore instead of dash for BIRD compatibility
           const uuidSuffix = sessionUuid.slice(-6);
           const asnSuffix = (peerAsn % 100000).toString();
-          ifname = `as${asnSuffix}-${uuidSuffix}`;
+          ifname = `as${asnSuffix}_${uuidSuffix}`;
 
           // Check if the session with specific ifname already exists
           const checkIfNameExist = async (interfaceName) => {
