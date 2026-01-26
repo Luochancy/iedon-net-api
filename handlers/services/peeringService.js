@@ -343,20 +343,39 @@ export async function enumPeeringSessions(c, enumAll = false) {
 export async function nodeInfo(c) {
   const data = c.var.body.data || "";
   const routerUuid = c.var.body.router;
+  const _asn = c.var.body.asn;
 
   if (nullOrEmpty(routerUuid) || typeof routerUuid !== "string")
     return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
 
+  // Determine ASN: use submitted ASN for admin, otherwise use logged-in user's ASN
+  let peerAsn = Number(c.var.state.asn);
+  if (!nullOrEmpty(_asn) && typeof _asn === "number" && !isNaN(_asn)) {
+    const isAdmin = await isUserAdmin(c);
+    if (isAdmin) {
+      peerAsn = _asn;
+    }
+  }
+
   const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
   if (!url || !agentSecret)
     return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+
+  // Count existing sessions for this ASN on this router
+  const existingSessionCount = await c.var.app.models.bgpSessions.count({
+    where: {
+      router: routerUuid,
+      asn: peerAsn,
+    },
+  });
 
   const salt = await bcryptGenSalt();
   const token = await bcryptGenHash(`${agentSecret}${routerUuid}`, salt);
   const response = await c.var.app.fetch.post(
     `${url}/info`,
     {
-      asn: Number(c.var.state.asn),
+      asn: peerAsn,
+      existingSessionCount,
       data,
     },
     "json",
