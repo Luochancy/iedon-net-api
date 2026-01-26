@@ -620,8 +620,8 @@ export async function setPeeringSession(c, modify = false) {
           // Generate UUID for new session
           sessionUuid = randomUUID();
           
-          // Extract last 8 characters of UUID for interface naming
-          const uuidSuffix = sessionUuid.slice(-8);
+          // Extract last 6 characters of UUID for interface naming (15 char limit)
+          const uuidSuffix = sessionUuid.slice(-6);
           const asnSuffix = (peerAsn % 100000).toString();
           ifname = `as${asnSuffix}-${uuidSuffix}`;
 
