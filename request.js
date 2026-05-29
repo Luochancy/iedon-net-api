@@ -83,7 +83,9 @@ function isPublicUrl(url) {
     url === "/auth" ||
     url.startsWith("/agent/") ||
     url.startsWith("/list/") ||
-    url === "/metrics"
+    url === "/metrics" ||
+    url === "/lg/protocols" ||
+    url === "/lg/protocols/"
   );
 }
 

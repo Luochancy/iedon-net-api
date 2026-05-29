@@ -6,6 +6,7 @@ import peeringHandler from './handlers/peering.js';
 import settingsHandler from './handlers/settings.js';
 import agentHandler from './handlers/agent.js';
 import metricsHandler from './handlers/metrics.js';
+import lgHandler from './handlers/lg.js';
 
 export function registerRoutes(app) {
   app.server.post('/admin', adminHandler)
@@ -16,5 +17,8 @@ export function registerRoutes(app) {
   .post('/settings', settingsHandler)
   .get('/agent/:router/:action', agentHandler)
   .post('/agent/:router/:action', agentHandler)
-  .get('/metrics', metricsHandler);
+  .get('/metrics', metricsHandler)
+  .get('/lg/protocols', lgHandler)
+  .get('/lg/protocols/:name', lgHandler)
+  .get('/lg/routes/:prefix', lgHandler);
 }
