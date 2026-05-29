@@ -634,7 +634,7 @@ export async function setPeeringSession(c, modify = false) {
             await transaction.rollback();
             return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
           }
-          ifname = session.interface;
+          ifname = session.interface.replace(/-/g, '_');
         } else {
           // Generate UUID for new session
           sessionUuid = randomUUID();
@@ -688,8 +688,7 @@ export async function setPeeringSession(c, modify = false) {
         if (modify && _sessionUuid) {
           await c.var.app.models.bgpSessions.update(
             options,
-            { where: { uuid: _sessionUuid } },
-            { transaction }
+            { where: { uuid: _sessionUuid }, transaction }
           );
         } else {
           await c.var.app.models.bgpSessions.create(options, { transaction });

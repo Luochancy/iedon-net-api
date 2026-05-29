@@ -128,7 +128,7 @@ export const attachProbeSnapshots = async (c, collection, selector) => {
     if (!uuid) continue;
     const snapshot = probeMap.get(uuid);
     if (snapshot) {
-      item.probe = snapshot || createEmptyProbeSnapshot;
+      item.probe = snapshot || createEmptyProbeSnapshot();
     }
   }
 };
