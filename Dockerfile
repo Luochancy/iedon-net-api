@@ -25,7 +25,6 @@ COPY . .
 FROM base AS release
 COPY --from=install /temp/prod/node_modules node_modules
 COPY --from=prerelease /usr/src/app/ .
-RUN cd ./acorle-sdk && bun install --frozen-lockfile --production
 
 # run the app
 EXPOSE 3000 4222

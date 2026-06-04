@@ -28,14 +28,6 @@ export default {
           maxLogSize: 10485760,
           keepFileExt: true
         },
-        acorle: {
-          type: 'file',
-          filename: './logs/acorle/acorle.log',
-          compress: true,
-          backups: 7,
-          maxLogSize: 10485760,
-          keepFileExt: true
-        },
         mail: {
           type: 'file',
           filename: './logs/mail/mail.log',
@@ -86,10 +78,6 @@ export default {
           level: 'info',
           appenders: ['app']
         },
-        acorle: {
-          level: 'info',
-          appenders: ['acorle']
-        },
         database: {
           level: 'debug',
           appenders: ['stdout']
@@ -118,22 +106,6 @@ export default {
     }
   },
 
-  // Integration with acorle microservice
-  acorle: {
-    enabled: false,
-    zone: 'dev',
-    secret: '',
-    regIntervalSeconds: 30,
-    centerServerUrl: 'http://',
-    localUrl: 'http://',
-    // To configure which configuration we will use, from center server via acorle, or configuration presented below
-    retriveConfigFromCenterServer: true,
-    configKey: 'peerapi_config',
-    serviceKey: 'peerapi',
-    serviceName: 'iEdon PeerAPI'
-  },
-
-  // ** The following configutations can be retrived via acorle **
   authHandler: {
     stateSignSecret: '__DEMO__STATE_SIGN_SECRET__',
     stateSignOptions: {
@@ -220,9 +192,6 @@ export default {
         pass: ''
       }
     },
-    acorle: {                           // configuration for acorle mail provider(via microservice)
-      serviceKey: 'dn42_send_mail'      // service key for RPC
-    }
   },
 
   whoisSettings: {
@@ -240,9 +209,6 @@ export default {
       //     type: 5         // or 4
       // }
     },
-    acorle: {               // configuration for acorle whois provider(via microservice)
-      serviceKey: 'dn42_whois'      // service key for RPC
-    }
   },
 
   fetchSettings: {
@@ -278,9 +244,6 @@ export default {
         expiresIn: '5m'
       }
     },
-    acorle: {               // configuration for acorle auth provider(via microservice)
-      serviceKey: 'dn42_token'      // service key for RPC
-    }
   },
 
   metricSettings: {

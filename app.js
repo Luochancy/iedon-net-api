@@ -43,9 +43,6 @@ registerRoutes(app);
     const appLogger = app.logger.getLogger('app');
     appLogger.info(`${pkg.name}/${pkg.version} started.`);
 
-    // Initialize Acorle if enabled
-    if (localSettings.acorle.enabled) await initAcorle(app);
-
     // Initialize dependencies
     await Promise.all([
       useDbContext(app, app.settings.dbSettings),
@@ -67,85 +64,6 @@ registerRoutes(app);
     console.error('Error during bootstrap: ', error);
   }
 })();
-
-// Function to initialize Acorle middleware
-const initAcorle = async app => {
-  const appLogger = app.logger.getLogger('app');
-  const acorleLogger = app.logger.getLogger('acorle');
-
-  try {
-    // Dynamically import Acorle middleware only when needed
-    const { acorleMiddleware, AcorleService } = await import('./acorle-sdk/acorleMiddleware.js');
-
-    // Apply Acorle middleware to the server
-    app.server.use(acorleMiddleware(
-      app,
-      localSettings.acorle.centerServerUrl,
-      localSettings.acorle.zone,
-      localSettings.acorle.secret,
-      localSettings.acorle.regIntervalSeconds,
-      (level, log) => acorleLogger[level](log)
-    ));
-
-    // Retrieve configuration from center server if enabled
-    if (localSettings.acorle.retriveConfigFromCenterServer) {
-      await retrieveAcorleConfig(app);
-    }
-
-    // Register services with Acorle if enabled
-    if (localSettings.acorle.enabled) {
-      registerAcorleServices(app, AcorleService);
-    }
-
-  } catch (error) {
-    appLogger.error('Error initializing Acorle:', error);
-  }
-};
-
-// Function to retrieve Acorle configuration from the center server
-const retrieveAcorleConfig = async app => {
-  const appLogger = app.logger.getLogger('app');
-
-  try {
-    const config = await app.acorle.getConfig(localSettings.acorle.configKey);
-
-    if (config && config.context) {
-      const newSettings = {
-        ...localSettings,
-        ...JSON.parse(config.context),
-      };
-      app.settings = newSettings;
-      appLogger.info('Configuration retrieved and applied successfully.');
-
-    } else {
-      throw new Error('Empty or invalid configuration received.');
-    }
-
-  } catch (error) {
-    appLogger.error(`Failed to retrieve configuration: ${error.message}. Continuing with local file.`);
-  }
-};
-
-// Function to register services with Acorle
-const registerAcorleServices = (app, AcorleService) => {
-  const { acorle } = localSettings;
-
-  try {
-    // Register as a microservice to Acorle
-    app.acorle.registerServices([
-      new AcorleService(
-        acorle.serviceKey,
-        acorle.localUrl,
-        acorle.serviceName,
-        false
-      ),
-    ]);
-
-  } catch (error) {
-    const acorleLogger = app.logger.getLogger('acorle');
-    acorleLogger.error(`Failed to register services with Acorle: ${error.message}`);
-  }
-};
 
 // Export module with server fetch method and other settings
 const serverModule = {
