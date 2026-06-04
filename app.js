@@ -15,7 +15,6 @@ import { useFetch } from './providers/fetch/fetch.js'
 import { useToken } from './providers/token/token.js';
 import { useDbContext } from './db/dbContext.js';
 import { useRedisContext } from './db/redisContext.js';
-import { useSshAuthServer } from './providers/ssh/sshAuthServer.js';
 import { useOpenAuth } from './providers/openAuth/openAuth.js';
 import { useProbeServer } from './providers/probeServer/probeServer.js';
 
@@ -51,9 +50,6 @@ registerRoutes(app);
       useWhois(app, app.settings.whoisSettings),
       useFetch(app, app.settings.fetchSettings),
       useToken(app, app.settings.tokenSettings),
-      ...(app.settings?.sshAuthServerSettings?.enabled === false
-        ? []
-        : [useSshAuthServer(app, app.settings.sshAuthServerSettings)]),
       useOpenAuth(app, app.settings.openAuthSettings)
     ]);
 

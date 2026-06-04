@@ -25,10 +25,8 @@ services:
       - ./config.js:/usr/src/app/config.js
       - ./auth42-cred:/data/auth42-cred
       - /var/log/peerapi:/usr/src/app/logs
-      # - /var/run/peerapi:/var/run/peerapi
     ports:
       - "3000:3000/tcp"     # HTTP API
-      - "4222:4222/tcp"     # SSH 认证服务器
       - "2189:2189/udp"     # 探针服务器
 
 volumes:

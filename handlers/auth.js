@@ -32,11 +32,6 @@ import { sendAuthMail } from "./services/mailService.js";
                 id: 1,
                 type: "pgp-fingerprint",
                 name: "FINGERPRINT"
-            },
-            {
-                id: 2,
-                type: "ssh-xxx",
-                name: "HASH....END"
             }
         ]
     },
@@ -83,8 +78,7 @@ export default async function (c) {
 const SupportedAuthType = {
   PASSWORD: 0,
   PGP_ASCII_ARMORED_CLEAR_SIGN: 1,
-  SSH_SERVER_AUTH: 2,
-  EMAIL: 3,
+  EMAIL: 2,
 };
 
 function checkAsn(asn) {
@@ -172,9 +166,6 @@ async function queryAuthMethods(c, asn) {
             SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN,
             splits[i + 1]
           );
-          break;
-        } else if (entry.includes("ssh") && splits[i + 1]) {
-          addAuthMethod(SupportedAuthType.SSH_SERVER_AUTH, auth.trim());
           break;
         }
       }
@@ -315,15 +306,6 @@ async function request(c) {
     authMethod.type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN
   ) {
     authChallenge = authState.code;
-  } else if (authMethod.type === SupportedAuthType.SSH_SERVER_AUTH) {
-    authChallenge =
-      c.var.app.settings.sshAuthServerSettings.challengeHint ||
-      "Connect to our server using SSH Client";
-    c.var.app.ssh.setSshAuthInfo(
-      authState.asn,
-      authMethod.data.trim(),
-      authState.code
-    );
   }
 
   try {
@@ -436,15 +418,6 @@ async function challenge(c) {
         // supress invalid signature exception
       }
     }
-  } else if (type === SupportedAuthType.SSH_SERVER_AUTH) {
-    authMethod = "ssh";
-    if (nullOrEmpty(authData) || typeof authData !== "string")
-      return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
-    if (authData.trim() === code) authResult = true;
-    c.var.app.ssh.clearSshAuthInfo(
-      authState.asn,
-      authState.authMethod.data.trim()
-    );
   }
 
   if (authResult) {
