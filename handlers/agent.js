@@ -478,6 +478,66 @@ async function report(c, router) {
         }
       });
     }
+
+    // Enrich BGP state from agent's /lg/protocols if agent didn't provide it
+    const needsBgpEnrichment = validMetrics.some(
+      (m) => m.bgp?.some((b) => !b.state && !b.info)
+    );
+    if (needsBgpEnrichment) {
+      try {
+        const [cbUrl] = await getRouterCbParams(c, router);
+        if (cbUrl) {
+          const resp = await c.var.app.fetch.get(
+            `${cbUrl}/lg/protocols`,
+            "json"
+          );
+          const protocols =
+            resp?.status === 200
+              ? resp.data?.data?.protocols || resp.data?.protocols || []
+              : [];
+          const protoMap = new Map();
+          if (Array.isArray(protocols)) {
+            for (const p of protocols) {
+              if (p.name) protoMap.set(p.name, p);
+            }
+          }
+
+          if (protoMap.size > 0) {
+            for (const metric of validMetrics) {
+              if (!metric.bgp?.length) continue;
+              const sessionKey = `session:${metric.uuid}`;
+              const existing = await c.var.app.redis.getData(sessionKey);
+              if (!existing?.bgp?.length) continue;
+
+              let changed = false;
+              for (const bgp of existing.bgp) {
+                if (bgp.state && bgp.info) continue;
+                const proto = protoMap.get(bgp.name);
+                if (proto) {
+                  if (!bgp.state && proto.state) { bgp.state = proto.state; changed = true; }
+                  // LG since format: "17:18:08.962 Established" — split into since + info
+                  if (proto.since && typeof proto.since === 'string') {
+                    const parts = proto.since.split(/\s+/);
+                    const ts = parts[0] || '';
+                    const stateText = parts.slice(1).join(' ') || '';
+                    if (!bgp.since && ts) { bgp.since = ts; changed = true; }
+                    if (!bgp.info && stateText) { bgp.info = stateText; changed = true; }
+                  }
+                  if (!bgp.info && proto.info) { bgp.info = proto.info; changed = true; }
+                }
+              }
+              if (changed) {
+                await c.var.app.redis.setData(sessionKey, existing);
+              }
+            }
+          }
+        }
+      } catch (enrichErr) {
+        c.var.app.logger
+          .getLogger("fetch")
+          .error(`BGP state enrichment failed for router ${router}: ${enrichErr}`);
+      }
+    }
   } catch (error) {
     c.var.app.logger
       .getLogger("app")
