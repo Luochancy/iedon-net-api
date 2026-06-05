@@ -7,6 +7,7 @@ import settingsHandler from './handlers/settings.js';
 import agentHandler from './handlers/agent.js';
 import metricsHandler from './handlers/metrics.js';
 import lgHandler from './handlers/lg.js';
+import whoisHandler from './handlers/whois.js';
 
 export function registerRoutes(app) {
   app.server.post('/admin', adminHandler)
@@ -18,6 +19,7 @@ export function registerRoutes(app) {
   .get('/agent/:router/:action', agentHandler)
   .post('/agent/:router/:action', agentHandler)
   .get('/metrics', metricsHandler)
+  .get('/whois', whoisHandler)
   .get('/lg/protocols', lgHandler)
   .get('/lg/protocols/:name', lgHandler)
   .get('/lg/routes/:prefix', lgHandler);
