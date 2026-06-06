@@ -279,10 +279,10 @@ async function report(c, router) {
                 existingData?.bgp?.find((e) => e.name === entry.name) || {};
               return {
                 name: entry.name || "",
-                state: entry.state || "",
-                info: entry.info || "",
+                state: entry.state || existingBgp.state || "",
+                info: entry.info || existingBgp.info || "",
                 type: entry.type || "",
-                since: entry.since || "",
+                since: entry.since || existingBgp.since || "",
                 routes: {
                   ipv4: {
                     imported: {
@@ -528,6 +528,34 @@ async function report(c, router) {
               }
               if (changed) {
                 await c.var.app.redis.setData(sessionKey, existing);
+              }
+            }
+
+            // Also update enum data with enriched BGP state
+            for (const metric of validMetrics) {
+              if (!metric.bgp?.length || !metric.asn) continue;
+              const enumKey = `enum:${metric.asn}`;
+              const enumData = await c.var.app.redis.getData(enumKey);
+              if (!enumData) continue;
+              let enumChanged = false;
+              const peerUuid = metric.uuid;
+              const peerBgp = enumData[peerUuid];
+              if (Array.isArray(peerBgp)) {
+                for (const bgp of peerBgp) {
+                  const proto = protoMap.get(bgp.name);
+                  if (proto) {
+                    if (!bgp.state && proto.state) { bgp.state = proto.state; enumChanged = true; }
+                    if (proto.since && typeof proto.since === 'string') {
+                      const parts = proto.since.split(/\s+/);
+                      const stateText = parts.slice(1).join(' ') || '';
+                      if (!bgp.info && stateText) { bgp.info = stateText; enumChanged = true; }
+                    }
+                    if (!bgp.info && proto.info) { bgp.info = proto.info; enumChanged = true; }
+                  }
+                }
+              }
+              if (enumChanged) {
+                await c.var.app.redis.setData(enumKey, enumData);
               }
             }
           }
