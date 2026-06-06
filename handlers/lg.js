@@ -128,7 +128,43 @@ async function getRoutes(c, prefix) {
   }
 
   if (!sessions || sessions.length === 0) {
-    return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+    // No sessions for this ASN — fall back to all public routers
+    let publicRouters;
+    try {
+      publicRouters = await c.var.app.models.routers.findAll({
+        attributes: ["uuid"],
+        where: { public: true },
+      });
+    } catch (error) {
+      c.var.app.logger.getLogger("app").error(error);
+      return makeResponse(c, RESPONSE_CODE.SERVER_ERROR);
+    }
+    if (!publicRouters || publicRouters.length === 0) {
+      return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+    }
+    // Collect all valid router UUIDs
+    for (const r of publicRouters) {
+      const [url, agentSecret] = await getRouterCbParams(c, r.dataValues.uuid);
+      if (!url || !agentSecret) continue;
+      try {
+        const response = await c.var.app.fetch.get(
+          `${url}/lg/routes/${encodeURIComponent(prefix)}`,
+          "json"
+        );
+        if (response && response.status === 200 && response.data) {
+          const data = response.data.data || response.data;
+          return makeResponse(c, RESPONSE_CODE.OK, data);
+        }
+      } catch (error) {
+        c.var.app.logger
+          .getLogger("fetch")
+          .error(
+            `Failed to fetch /lg/routes/${prefix} from router ${r.dataValues.uuid}: ${error}`
+          );
+        continue;
+      }
+    }
+    return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
   }
 
   // Collect unique routers the user has sessions on
