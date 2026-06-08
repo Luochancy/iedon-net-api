@@ -204,6 +204,15 @@ async function handlePing(c) {
 
   const routerUuid = c.req.query("router");
   if (routerUuid) {
+    // Verify user has a session on this router
+    const userAsn = Number(c.var.state.asn);
+    try {
+      const session = await c.var.app.models.bgpSessions.findOne({
+        attributes: ["router"],
+        where: { asn: userAsn, router: routerUuid },
+      });
+      if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+    } catch (_) {}
     const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
     if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
     try {
@@ -277,6 +286,15 @@ async function handleTraceroute(c) {
 
   const routerUuid = c.req.query("router");
   if (routerUuid) {
+    // Verify user has a session on this router
+    const userAsn = Number(c.var.state.asn);
+    try {
+      const session = await c.var.app.models.bgpSessions.findOne({
+        attributes: ["router"],
+        where: { asn: userAsn, router: routerUuid },
+      });
+      if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+    } catch (_) {}
     const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
     if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
     try {
