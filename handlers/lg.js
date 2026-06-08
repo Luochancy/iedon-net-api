@@ -109,13 +109,43 @@ async function getProtocolDetail(c) {
   }
 }
 
-// GET /lg/routes/:prefix — authenticated, verify ASN ownership via protocol lookup
+// GET /lg/routes/:prefix[?router=<uuid>] — authenticated, verify ASN ownership via protocol lookup
 async function getRoutes(c, prefix) {
   if (!prefix) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
 
   const userAsn = Number(c.var.state.asn);
 
-  // Check if any BGP session belongs to this user on any router
+  // If router specified, verify ownership and query only that router
+  const requestedRouter = c.req.query("router");
+  if (requestedRouter) {
+    // Verify user has a session on this router
+    try {
+      const session = await c.var.app.models.bgpSessions.findOne({
+        attributes: ["router"],
+        where: { asn: userAsn, router: requestedRouter },
+      });
+      if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+    } catch (_) {}
+    const [url, agentSecret] = await getRouterCbParams(c, requestedRouter);
+    if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+    try {
+      const response = await c.var.app.fetch.get(
+        `${url}/lg/routes/${encodeURIComponent(prefix)}`,
+        "json"
+      );
+      if (response && response.status === 200 && response.data) {
+        const data = response.data.data || response.data;
+        return makeResponse(c, RESPONSE_CODE.OK, data);
+      }
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    } catch (error) {
+      c.var.app.logger.getLogger("fetch")
+        .error(`Failed to fetch /lg/routes/${prefix} from router ${requestedRouter}: ${error}`);
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    }
+  }
+
+  // No router specified — try all user routers, then fall back to public
   let sessions;
   try {
     sessions = await c.var.app.models.bgpSessions.findAll({
