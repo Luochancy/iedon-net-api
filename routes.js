@@ -22,5 +22,7 @@ export function registerRoutes(app) {
   .get('/whois', whoisHandler)
   .get('/lg/protocols', lgHandler)
   .get('/lg/protocols/:name', lgHandler)
-  .get('/lg/routes/:prefix', lgHandler);
+  .get('/lg/routes/:prefix', lgHandler)
+  .get('/lg/ping', lgHandler)
+  .get('/lg/traceroute', lgHandler);
 }

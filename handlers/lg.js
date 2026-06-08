@@ -197,6 +197,151 @@ async function getRoutes(c, prefix) {
   return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
 }
 
+// GET /lg/ping?target=<ip>[&router=<uuid>] — authenticated
+async function handlePing(c) {
+  const target = c.req.query("target");
+  if (!target) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST, null, "Missing 'target' query parameter");
+
+  const routerUuid = c.req.query("router");
+  if (routerUuid) {
+    const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
+    if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+    try {
+      const response = await c.var.app.fetch.get(
+        `${url}/lg/ping?target=${encodeURIComponent(target)}`,
+        "json"
+      );
+      if (response && response.status === 200 && response.data) {
+        return makeResponse(c, RESPONSE_CODE.OK, response.data.data || response.data);
+      }
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    } catch (error) {
+      c.var.app.logger.getLogger("fetch").error(`Ping failed on router ${routerUuid}: ${error}`);
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    }
+  }
+
+  // No router specified — try user's routers, then fall back to public
+  const userAsn = Number(c.var.state.asn);
+  let routerUuids = [];
+  try {
+    const sessions = await c.var.app.models.bgpSessions.findAll({
+      attributes: ["router"],
+      where: { asn: userAsn },
+    });
+    if (sessions && sessions.length > 0) {
+      routerUuids = [...new Set(sessions.map(s => s.dataValues.router))];
+    }
+  } catch (_) {}
+
+  if (routerUuids.length === 0) {
+    try {
+      const publicRouters = await c.var.app.models.routers.findAll({
+        attributes: ["uuid"],
+        where: { public: true },
+      });
+      if (publicRouters && publicRouters.length > 0) {
+        routerUuids = publicRouters.map(r => r.dataValues.uuid);
+      }
+    } catch (_) {}
+  }
+
+  if (routerUuids.length === 0) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+
+  // Try each router
+  for (const rid of routerUuids) {
+    const [url, agentSecret] = await getRouterCbParams(c, rid);
+    if (!url || !agentSecret) continue;
+    try {
+      const response = await c.var.app.fetch.get(
+        `${url}/lg/ping?target=${encodeURIComponent(target)}`,
+        "json"
+      );
+      if (response && response.status === 200 && response.data) {
+        const data = response.data.data || response.data;
+        data.router = rid;
+        return makeResponse(c, RESPONSE_CODE.OK, data);
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+}
+
+// GET /lg/traceroute?target=<ip>[&router=<uuid>] — authenticated
+async function handleTraceroute(c) {
+  const target = c.req.query("target");
+  if (!target) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST, null, "Missing 'target' query parameter");
+
+  const routerUuid = c.req.query("router");
+  if (routerUuid) {
+    const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
+    if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+    try {
+      const response = await c.var.app.fetch.get(
+        `${url}/lg/traceroute?target=${encodeURIComponent(target)}`,
+        "json"
+      );
+      if (response && response.status === 200 && response.data) {
+        return makeResponse(c, RESPONSE_CODE.OK, response.data.data || response.data);
+      }
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    } catch (error) {
+      c.var.app.logger.getLogger("fetch").error(`Traceroute failed on router ${routerUuid}: ${error}`);
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    }
+  }
+
+  // No router specified — try user's routers, then fall back to public
+  const userAsn = Number(c.var.state.asn);
+  let routerUuids = [];
+  try {
+    const sessions = await c.var.app.models.bgpSessions.findAll({
+      attributes: ["router"],
+      where: { asn: userAsn },
+    });
+    if (sessions && sessions.length > 0) {
+      routerUuids = [...new Set(sessions.map(s => s.dataValues.router))];
+    }
+  } catch (_) {}
+
+  if (routerUuids.length === 0) {
+    try {
+      const publicRouters = await c.var.app.models.routers.findAll({
+        attributes: ["uuid"],
+        where: { public: true },
+      });
+      if (publicRouters && publicRouters.length > 0) {
+        routerUuids = publicRouters.map(r => r.dataValues.uuid);
+      }
+    } catch (_) {}
+  }
+
+  if (routerUuids.length === 0) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+
+  for (const rid of routerUuids) {
+    const [url, agentSecret] = await getRouterCbParams(c, rid);
+    if (!url || !agentSecret) continue;
+    try {
+      const response = await c.var.app.fetch.get(
+        `${url}/lg/traceroute?target=${encodeURIComponent(target)}`,
+        "json"
+      );
+      if (response && response.status === 200 && response.data) {
+        const data = response.data.data || response.data;
+        data.router = rid;
+        return makeResponse(c, RESPONSE_CODE.OK, data);
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+}
+
 export default async function (c) {
   const path = c.req.path;
 
@@ -215,6 +360,16 @@ export default async function (c) {
   const routesMatch = path.match(/^\/lg\/routes\/(.+)$/);
   if (routesMatch) {
     return await getRoutes(c, decodeURIComponent(routesMatch[1]));
+  }
+
+  // GET /lg/ping?target=... — authenticated
+  if (path === "/lg/ping" || path === "/lg/ping/") {
+    return await handlePing(c);
+  }
+
+  // GET /lg/traceroute?target=... — authenticated
+  if (path === "/lg/traceroute" || path === "/lg/traceroute/") {
+    return await handleTraceroute(c);
   }
 
   return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
