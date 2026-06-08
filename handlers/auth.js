@@ -438,6 +438,7 @@ async function challenge(c) {
 }
 
 function parseWhois(whoisText) {
+  if (!whoisText) return null;
   // Split the WHOIS text by new lines
   const lines = whoisText.split("\n");
 
