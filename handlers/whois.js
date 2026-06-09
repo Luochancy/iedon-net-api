@@ -1,3 +1,13 @@
+/*
+*******************************************************************
+handlers/whois.js
+
+Copyright (C) 2026 Luochancy
+
+Licensed under the GNU General Public License v3.0.
+See LICENSE in the project root.
+*******************************************************************
+*/
 import { makeResponse, RESPONSE_CODE } from "../common/packet.js";
 
 function parseWhois(whoisText) {

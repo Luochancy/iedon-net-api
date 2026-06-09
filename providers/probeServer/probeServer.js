@@ -1,3 +1,17 @@
+/*
+*******************************************************************
+providers/probeServer/probeServer.js
+
+Copyright (C) 2024 iEdon
+Copyright (C) 2026 Luochancy
+
+This file is part of a project derived from iedon-net-api.
+Modified by Luochancy on 2026-06.
+
+Licensed under the GNU General Public License v3.0.
+See the LICENSE file in the project root for details.
+*******************************************************************
+*/
 import dgram from "dgram";
 import crypto from "crypto";
 import { PROBE_PACKET_HEADER, PROBE_PACKET_FOOTER, PROBE_FAMILY_IPV4, PROBE_FAMILY_IPV6, buildProbeRedisKey } from "../../common/probe.js";
