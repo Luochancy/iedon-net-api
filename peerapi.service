@@ -1,12 +1,12 @@
 [Unit]
-Description=iEdon DN42 PeerAPI
+Description=LuocyNet PeerHub API
 After=network.target
 
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/iedon/peerapi/
-ExecStart=bun run /opt/iedon/peerapi/app.js
+WorkingDirectory=/opt/peerhub/api/
+ExecStart=bun run /opt/peerhub/api/app.js
 Restart=always
 RestartSec=5s
 

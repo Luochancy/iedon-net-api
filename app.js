@@ -14,7 +14,7 @@ See the LICENSE file in the project root for details.
 */
 /**
  * ===========================
- *        IEDON-PEERAPI       
+ *        PEERHUB-API       
  *          Bootstrap         
  * ===========================
  */

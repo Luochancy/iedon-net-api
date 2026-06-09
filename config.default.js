@@ -14,7 +14,7 @@ See the LICENSE file in the project root for details.
 */
 /**
  * ===========================
- *        IEDON-PEERAPI       
+ *        PEERHUB-API       
  *        Configutation       
  * ===========================
  */
@@ -124,7 +124,7 @@ export default {
     port: 3306,
     user: '',
     password: '',
-    database: 'iedon-peerapi',
+    database: 'peerhub-api',
     pool: {
       max: 5,
       min: 1,
@@ -195,7 +195,7 @@ export default {
         timeout: 10000,
         cache: 'no-cache',
         headers: {
-          'User-Agent': 'iEdon-PeerAPI'
+          'User-Agent': 'LuocyNet-PeerHub-API'
         },
       }
     },
@@ -204,7 +204,7 @@ export default {
   openAuthSettings: {
     providers: [ 'kioubit', 'default' ],
     kioubit: {
-      myDomain: 'iedon.net',
+      myDomain: 'dn42.luocynet.com',
       notAllowed: [ 4242422189 ],
       publicKey: './kioubitAuth.pem'
     },
@@ -214,7 +214,7 @@ export default {
     provider: 'default',    // default provider is using jsonwebtoken package and takes jwt configuration section bellow
     logging: true,
     jwt: {
-      secret: '__DEMO_SECRET_IEDON_PEERAPI__',
+      secret: '__DEMO_SECRET_PEERHUB_API__',
       options: {
         algorithm: 'HS256',
         expiresIn: '5m'
@@ -243,7 +243,7 @@ export default {
     bindAddress4: '0.0.0.0',
     bindAddress6: '::',
     encryptionKey: '___DEMO__PROBE_32_PACKET__KEY___',
-    expectedBanner: 'iEdon-Net PeerAPI Peering Prober',
+    expectedBanner: 'LuocyNet PeerHub Peering Prober',
     maxPacketLength: 512,
     timestampToleranceSec: 120, // Anti replay tolerance for packet timestamp
   },

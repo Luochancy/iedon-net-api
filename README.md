@@ -12,9 +12,9 @@ Licensed under the GNU General Public License v3.0.
 See the LICENSE file in the project root for details.
 *******************************************************************
 -->
-# IEDON-NET-API (Peer API for DN42)
+# LuocyNet PeerHub API
 
-This is the API server designed for auto-peering for iEdon-Net and the DN42. Based on `Hono.js`.
+This is the API server for auto-peering on DN42. Based on `Hono.js`.
 
 ## Structures
 
