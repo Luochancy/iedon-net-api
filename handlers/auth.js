@@ -18,11 +18,16 @@ import {
   signAsync,
   verifyAsync,
   getRandomCode,
+  getRandomBase64,
   bcryptCompare,
   ASN_MIN,
   ASN_MAX,
   MAIL_REGEX,
 } from "../common/helper.js";
+import { spawn } from "child_process";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import * as openpgp from "openpgp";
 import { sendAuthMail } from "./services/mailService.js";
@@ -93,6 +98,7 @@ const SupportedAuthType = {
   PASSWORD: 0,
   PGP_ASCII_ARMORED_CLEAR_SIGN: 1,
   EMAIL: 2,
+  SSH: 3,
 };
 
 function checkAsn(asn) {
@@ -160,6 +166,18 @@ async function queryAuthMethods(c, asn) {
           SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN,
           fingerprint
         );
+      }
+    });
+
+    const sshPublicKeys = Array.isArray(whoisData["ssh-public-key"])
+      ? whoisData["ssh-public-key"]
+      : whoisData["ssh-public-key"]
+      ? [whoisData["ssh-public-key"]]
+      : [];
+
+    sshPublicKeys.forEach((sshKey) => {
+      if (sshKey.trim()) {
+        addAuthMethod(SupportedAuthType.SSH, sshKey.trim());
       }
     });
 
@@ -320,6 +338,8 @@ async function request(c) {
     authMethod.type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN
   ) {
     authChallenge = authState.code;
+  } else if (authMethod.type === SupportedAuthType.SSH) {
+    authChallenge = getRandomBase64(32);
   }
 
   try {
@@ -431,6 +451,52 @@ async function challenge(c) {
       } catch {
         // supress invalid signature exception
       }
+    }
+  } else if (type === SupportedAuthType.SSH) {
+    authMethod = "ssh";
+    if (nullOrEmpty(authData) || typeof authData !== "string")
+      return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+
+    const signature = authData.trim();
+    const publicKey = authState.authMethod.data.trim();
+    const challengeText = code; // code is the original Base64 challenge text
+
+    // Write temp files for ssh-keygen
+    const tmp = tmpdir();
+    const sigFile = join(tmp, `ssh_sig_${Date.now()}.sig`);
+    const pubFile = join(tmp, `ssh_pub_${Date.now()}.pub`);
+    const chalFile = join(tmp, `ssh_chal_${Date.now()}`);
+
+    try {
+      await writeFile(sigFile, signature, "utf-8");
+      await writeFile(pubFile, publicKey, "utf-8");
+      await writeFile(chalFile, challengeText, "utf-8");
+
+      const sshKeygenPath = c.var.app.settings.authHandler.sshKeygenPath || "ssh-keygen";
+      const verifyProc = spawn(sshKeygenPath, [
+        "-Y", "verify",
+        "-f", pubFile,
+        "-n", "peerhub",
+        "-s", sigFile,
+      ], { input: challengeText });
+
+      const output = await new Promise((resolve, reject) => {
+        let stdout = "";
+        let stderr = "";
+        verifyProc.stdout.on("data", d => stdout += d);
+        verifyProc.stderr.on("data", d => stderr += d);
+        verifyProc.on("close", code => resolve({ code, stdout, stderr }));
+        verifyProc.on("error", reject);
+      });
+
+      if (output.code === 0) authResult = true;
+    } catch (error) {
+      c.var.app.logger.getLogger("auth").error(`SSH signature verify failed: ${error.message}`);
+    } finally {
+      // Clean up temp files
+      try { await unlink(sigFile); } catch {}
+      try { await unlink(pubFile); } catch {}
+      try { await unlink(chalFile); } catch {}
     }
   }
 

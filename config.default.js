@@ -115,6 +115,7 @@ export default {
       expiresIn: '10m'    // where sign-in state(via mail, pgp) expires
     },
     agentApiKey: '__DEMO__AGENT_API_TOKEN__', // PeerAPIConfig.secret in agent
+    sshKeygenPath: 'ssh-keygen', // path to ssh-keygen for SSH signature verification
   },
 
   dbSettings: {

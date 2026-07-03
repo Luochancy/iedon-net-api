@@ -45,6 +45,12 @@ export function getRandomCode() {
   return `DN42_VERIFICATION_${(Math.random() + 1).toString(36).substring(2)}${(Math.random() + 1).toString(36).substring(2)}`;
 }
 
+export function getRandomBase64(len = 32) {
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString('base64');
+}
+
 export function bcryptGenSalt() {
   return new Promise((resolve, reject) =>
     bcrypt.genSalt(10, function (error, salt) {
