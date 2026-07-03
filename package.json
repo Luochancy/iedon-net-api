@@ -1,7 +1,7 @@
 {
   "name": "peerhub-api",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.2.0_Dev",
   "private": true,
   "scripts": {
     "prod": "NODE_ENV=production bun app.js",

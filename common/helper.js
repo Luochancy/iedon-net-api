@@ -51,6 +51,18 @@ export function getRandomBase64(len = 32) {
   return Buffer.from(bytes).toString('base64');
 }
 
+const OTP_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function getRandomOTP(len = 8) {
+  const chars = [];
+  const randomValues = new Uint8Array(len);
+  crypto.getRandomValues(randomValues);
+  for (let i = 0; i < len; i++) {
+    chars.push(OTP_CHARS[randomValues[i] % OTP_CHARS.length]);
+  }
+  return chars.join('');
+}
+
 export function bcryptGenSalt() {
   return new Promise((resolve, reject) =>
     bcrypt.genSalt(10, function (error, salt) {

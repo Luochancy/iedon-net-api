@@ -19,6 +19,7 @@ import {
   verifyAsync,
   getRandomCode,
   getRandomBase64,
+  getRandomOTP,
   bcryptCompare,
   ASN_MIN,
   ASN_MAX,
@@ -79,6 +80,11 @@ import { sendAuthMail } from "./services/mailService.js";
 */
 
 export default async function (c) {
+  // Handle GET /auth/reserve/otp
+  if (c.req.method === 'GET' && c.req.path === '/auth/reserve/otp') {
+    return makeResponse(c, RESPONSE_CODE.OK, { otp: true });
+  }
+
   const action = c.var.body.action;
   switch (action) {
     case "query":
@@ -328,15 +334,17 @@ async function request(c) {
   }
 
   let authChallenge = "";
-  authState.code = getRandomCode();
   if (authMethod.type === SupportedAuthType.PASSWORD) {
+    authState.code = getRandomCode();
     authChallenge = authState.asn;
   } else if (authMethod.type === SupportedAuthType.EMAIL) {
+    authState.code = getRandomOTP();
     authChallenge = c.var.app.settings.mailSettings.senderEmailAddress;
     await sendAuthMail(c, authMethod.data, authState.person || authState.asn, authState.code);
   } else if (
     authMethod.type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN
   ) {
+    authState.code = getRandomCode();
     authChallenge = authState.code;
   } else if (authMethod.type === SupportedAuthType.SSH) {
     authChallenge = getRandomBase64(32);
@@ -413,7 +421,7 @@ async function challenge(c) {
     authMethod = "e-mail";
     if (nullOrEmpty(authData) || typeof authData !== "string")
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
-    if (authData.trim() === code) authResult = true;
+    if (authData.trim().toUpperCase() === code.toUpperCase()) authResult = true;
   } else if (type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN) {
     authMethod = "pgp";
     if (

@@ -41,9 +41,9 @@ export async function sendAuthMail(c, to, person, code) {
       "{{content}}",
       `<p>Hi ${person},</p>
       <p>您正在登录 Auto Peer 系统。<br />You are signing in to Auto Peer.</p>
-      <p>您的挑战文本是：<br />Your challenge text is:</p>
-      <div class="code">${code}</div>
-      <p>请尽快输入挑战文本。<br />Please enter the challenge text as soon as possible.</p>
+      <p>您的验证码是：<br />Your verification code is:</p>
+      <div class="code" style="font-size: 24px; letter-spacing: 4px; font-weight: bold;">${code}</div>
+      <p>请尽快输入验证码。<br />Please enter the code as soon as possible.</p>
       <p>如非本人操作请忽略此邮件。<br />If you did not request this email, please ignore it.</p>`
     );
 
