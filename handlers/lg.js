@@ -40,8 +40,9 @@ async function listProtocols(c) {
           "json"
         );
         if (response && response.status === 200 && response.data) {
-          const protocols = response.data.data || response.data;
-          return { routerUuid, routerName, protocols: Array.isArray(protocols) ? protocols : [] };
+          const rawData = response.data.data || response.data;
+          const protocols = Array.isArray(rawData) ? rawData : (rawData?.protocols || []);
+          return { routerUuid, routerName, protocols };
         }
         return { routerUuid, routerName, protocols: [] };
       } catch (error) {
