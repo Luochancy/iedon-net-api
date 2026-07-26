@@ -34,6 +34,7 @@ import { useProbeServer } from './providers/probeServer/probeServer.js';
 
 import { registerRoutes } from './routes.js';
 import { requestMiddleware } from './request.js';
+import { makeResponse, RESPONSE_CODE } from './common/packet.js';
 
 import { Hono } from 'hono';
 
@@ -45,6 +46,7 @@ const app = {
 };
 
 // Initialize routes and core middleware
+app.server.get('/reserve/otp', (c) => makeResponse(c, RESPONSE_CODE.OK, { otp: true }));
 requestMiddleware(app, app.settings.tokenSettings);
 registerRoutes(app);
 

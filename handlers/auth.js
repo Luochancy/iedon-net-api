@@ -80,11 +80,6 @@ import { sendAuthMail } from "./services/mailService.js";
 */
 
 export default async function (c) {
-  // Handle GET /reserve/otp
-  if (c.req.method === 'GET' && c.req.path === '/reserve/otp') {
-    return makeResponse(c, RESPONSE_CODE.OK, { otp: true });
-  }
-
   const action = c.var.body.action;
   switch (action) {
     case "query":

@@ -26,7 +26,6 @@ import whoisHandler from './handlers/whois.js';
 export function registerRoutes(app) {
   app.server.post('/admin', adminHandler)
   .post('/auth', authHandler)
-  .get('/reserve/otp', authHandler)
   .get('/list/:type/:postId?', listHandler)
   .get('/token', tokenHandler)
   .post('/session', peeringHandler)
