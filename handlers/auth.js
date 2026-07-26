@@ -188,19 +188,28 @@ async function queryAuthMethods(c, asn) {
       ? [whoisData.auth]
       : [];
 
+    // DN42 registry stores auth credentials in `auth:` attributes, e.g.
+    //   auth: pgp-fingerprint AABBCC...
+    //   auth: ssh-ed25519 AAAAC3Nza... user@host
     for (const auth of authEntries) {
-      const splits = auth.trim().split("\x20");
+      const line = auth.trim();
+      const splits = line.split(/\s+/);
+      const scheme = splits[0]?.trim() || "";
 
-      for (let i = 0; i < splits.length; i++) {
-        const entry = splits[i].trim();
-
-        if (entry === "pgp-fingerprint" && splits[i + 1]) {
-          addAuthMethod(
-            SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN,
-            splits[i + 1]
-          );
-          break;
-        }
+      if (scheme === "pgp-fingerprint" && splits[1]) {
+        addAuthMethod(
+          SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN,
+          splits[1]
+        );
+      } else if (
+        /^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-|sk-(ssh-ed25519|ecdsa))/.test(
+          scheme
+        ) &&
+        splits[1]
+      ) {
+        // Store the full public key line (type + base64 [+ comment]); the SSH
+        // challenge handler splits it back into type/key to build allowed_signers.
+        addAuthMethod(SupportedAuthType.SSH, line);
       }
     }
 
@@ -462,45 +471,60 @@ async function challenge(c) {
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
 
     const signature = authData.trim();
-    const publicKey = authState.authMethod.data.trim();
+    const publicKey = authState.authMethod.data.trim(); // "ssh-ed25519 AAAA... comment"
     const challengeText = code; // code is the original Base64 challenge text
+    const namespace = "peerhub"; // must match the namespace the client signs with (-n peerhub)
+    const principal = "peer@dn42"; // arbitrary identity; only needs to match -I and the allowed_signers line
 
-    // Write temp files for ssh-keygen
+    // Write temp files for ssh-keygen. Use pid + timestamp to avoid collisions between concurrent requests.
     const tmp = tmpdir();
-    const sigFile = join(tmp, `ssh_sig_${Date.now()}.sig`);
-    const pubFile = join(tmp, `ssh_pub_${Date.now()}.pub`);
-    const chalFile = join(tmp, `ssh_chal_${Date.now()}`);
+    const uniq = `${process.pid}_${Date.now()}`;
+    const sigFile = join(tmp, `ssh_sig_${uniq}.sig`);
+    const signersFile = join(tmp, `ssh_signers_${uniq}`);
 
     try {
+      // ssh-keygen -Y verify expects an allowed_signers file: "<principal> <keytype> <base64key>".
+      // Keep only the type + key fields so a trailing comment can't break the format.
+      const [keyType, keyData] = publicKey.split(/\s+/);
+      if (!keyType || !keyData) throw new Error("Invalid ssh public key format");
+      const allowedSigners = `${principal} ${keyType} ${keyData}\n`;
+
       await writeFile(sigFile, signature, "utf-8");
-      await writeFile(pubFile, publicKey, "utf-8");
-      await writeFile(chalFile, challengeText, "utf-8");
+      await writeFile(signersFile, allowedSigners, "utf-8");
 
       const sshKeygenPath = c.var.app.settings.authHandler.sshKeygenPath || "ssh-keygen";
       const verifyProc = spawn(sshKeygenPath, [
         "-Y", "verify",
-        "-f", pubFile,
-        "-n", "peerhub",
+        "-f", signersFile,
+        "-I", principal,
+        "-n", namespace,
         "-s", sigFile,
-      ], { input: challengeText });
+      ]);
 
       const output = await new Promise((resolve, reject) => {
         let stdout = "";
         let stderr = "";
+        const timer = setTimeout(() => {
+          verifyProc.kill("SIGKILL");
+          reject(new Error("ssh-keygen verify timed out"));
+        }, 5000);
         verifyProc.stdout.on("data", d => stdout += d);
         verifyProc.stderr.on("data", d => stderr += d);
-        verifyProc.on("close", code => resolve({ code, stdout, stderr }));
-        verifyProc.on("error", reject);
+        verifyProc.on("close", exitCode => { clearTimeout(timer); resolve({ code: exitCode, stdout, stderr }); });
+        verifyProc.on("error", err => { clearTimeout(timer); reject(err); });
+        // ssh-keygen -Y verify reads the signed message from stdin (no trailing newline, matching `echo -n`).
+        verifyProc.stdin.write(challengeText);
+        verifyProc.stdin.end();
       });
 
       if (output.code === 0) authResult = true;
+      else c.var.app.logger.getLogger("auth").info(`SSH signature verify rejected for AS${authState.asn}: ${output.stderr.trim()}`);
     } catch (error) {
       c.var.app.logger.getLogger("auth").error(`SSH signature verify failed: ${error.message}`);
     } finally {
       // Clean up temp files
       try { await unlink(sigFile); } catch {}
-      try { await unlink(pubFile); } catch {}
-      try { await unlink(chalFile); } catch {}
+      try { await unlink(signersFile); } catch {}
     }
   }
 
