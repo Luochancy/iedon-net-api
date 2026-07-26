@@ -91,16 +91,17 @@ function handlePreflightRequest(c, preflightHeaders) {
 }
 
 function isPublicUrl(url) {
+  const path = url.length > 1 ? url.replace(/\/+$/, "") : url;
+
   // Agent requests will be verified in agentHandler seperately
   // Metric endpoint is public but access is restricted by Basic Auth in metricsHandler, separately
   return (
-    url === "/auth" ||
-    url === "/auth/reserve/otp" ||
-    url.startsWith("/agent/") ||
-    url.startsWith("/list/") ||
-    url === "/metrics" ||
-    url === "/lg/protocols" ||
-    url === "/lg/protocols/"
+    path === "/auth" ||
+    path === "/auth/reserve/otp" ||
+    path.startsWith("/agent/") ||
+    path.startsWith("/list/") ||
+    path === "/metrics" ||
+    path === "/lg/protocols"
   );
 }
 
