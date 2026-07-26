@@ -26,6 +26,7 @@ import {
   MAIL_REGEX,
 } from "../common/helper.js";
 import { spawn } from "child_process";
+import { randomUUID } from "crypto";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -101,6 +102,13 @@ const SupportedAuthType = {
   EMAIL: 2,
   SSH: 3,
 };
+
+// Pending challenges live in redis rather than inside the signed state, which is
+// signed but NOT encrypted. Keep the TTL in step with authHandler.stateSignOptions.
+const AUTH_STATE_TTL_SECONDS = 600; // 10 minutes
+const AUTH_STATE_MAX_ATTEMPTS = 5;
+
+const authStateKey = (stateId) => `authstate:${stateId}`;
 
 function checkAsn(asn) {
   if (nullOrEmpty(asn)) return false;
@@ -338,21 +346,48 @@ async function request(c) {
   }
 
   let authChallenge = "";
+  let code = "";
   if (authMethod.type === SupportedAuthType.PASSWORD) {
-    authState.code = getRandomCode();
+    code = getRandomCode();
     authChallenge = authState.asn;
   } else if (authMethod.type === SupportedAuthType.EMAIL) {
-    authState.code = getRandomOTP();
+    code = getRandomOTP();
     authChallenge = c.var.app.settings.mailSettings.senderEmailAddress;
-    await sendAuthMail(c, authMethod.data, authState.person || authState.asn, authState.code);
   } else if (
     authMethod.type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN
   ) {
-    authState.code = getRandomCode();
-    authChallenge = authState.code;
+    code = getRandomCode();
+    authChallenge = code;
   } else if (authMethod.type === SupportedAuthType.SSH) {
-    authState.code = getRandomBase64(32);
-    authChallenge = authState.code;
+    code = getRandomBase64(32);
+    authChallenge = code;
+  }
+
+  // The state returned below is signed, not encrypted - anything placed in it is
+  // readable by whoever requested it. For e-mail sign-in the code is the only
+  // secret, so it is kept server side and referenced by an unguessable id.
+  const stateId = randomUUID();
+  const stateStored = await c.var.app.redis.setDataEx(
+    authStateKey(stateId),
+    { code, asn: authState.asn, type: authMethod.type },
+    AUTH_STATE_TTL_SECONDS
+  );
+  if (!stateStored) {
+    c.var.app.logger
+      .getLogger("app")
+      .error("Failed to persist pending auth state to redis.");
+    return makeResponse(c, RESPONSE_CODE.SERVER_ERROR);
+  }
+
+  // Send the mail only once the challenge is safely stored, otherwise the user
+  // would receive a code that can never be redeemed.
+  if (authMethod.type === SupportedAuthType.EMAIL) {
+    await sendAuthMail(
+      c,
+      authMethod.data,
+      authState.person || authState.asn,
+      code
+    );
   }
 
   try {
@@ -361,7 +396,7 @@ async function request(c) {
         asn: authState.asn,
         person: authState.person,
         authMethod,
-        code: authState.code,
+        stateId,
       },
       c.var.app.settings.authHandler.stateSignSecret,
       c.var.app.settings.authHandler.stateSignOptions
@@ -399,11 +434,39 @@ async function challenge(c) {
     return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
   }
 
+  // Redeem the pending challenge. This burns one attempt and fails closed when
+  // the state expired, was already used, or ran out of attempts.
+  if (nullOrEmpty(authState.stateId) || typeof authState.stateId !== "string")
+    return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+
+  const stateKey = authStateKey(authState.stateId);
+  const pendingState = await c.var.app.redis.consumeAuthState(
+    stateKey,
+    AUTH_STATE_MAX_ATTEMPTS
+  );
+
+  if (pendingState.status !== "ok") {
+    if (pendingState.status === "locked")
+      c.var.app.logger
+        .getLogger("auth")
+        .warn(
+          `AS${authState.asn} - Authentication state discarded after ${AUTH_STATE_MAX_ATTEMPTS} failed attempts.`
+        );
+    return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+  }
+
+  // Defense in depth: the id is unguessable, but never let a state be redeemed
+  // for an ASN other than the one it was issued for.
+  if (String(pendingState.asn) !== String(authState.asn)) {
+    await c.var.app.redis.deleteData(stateKey);
+    return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+  }
+
   let authResult = false;
   let token = "";
   let authMethod = "";
   const type = authState.authMethod.type;
-  const code = authState.code;
+  const code = pendingState.code;
 
   if (type === SupportedAuthType.PASSWORD) {
     authMethod = "password";
@@ -529,6 +592,8 @@ async function challenge(c) {
   }
 
   if (authResult) {
+    // Single use: a redeemed challenge must not be replayable within its TTL.
+    await c.var.app.redis.deleteData(stateKey);
     token = await c.var.app.token.generateToken({
       asn: authState.asn,
       person: authState.person,

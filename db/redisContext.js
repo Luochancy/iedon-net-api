@@ -23,6 +23,33 @@ export async function useRedisContext(app, redisSettings) {
   });
   await redis.connect();
 
+  // Atomically consume one verification attempt of a pending auth state.
+  // Returns {status:'missing'} when the state expired or was already used,
+  // {status:'locked'} once the attempt budget is exhausted (state is dropped),
+  // otherwise {status:'ok', ...state}. Keeps the original TTL so a wrong guess
+  // never extends the window.
+  redis.defineCommand("consumeAuthState", {
+    numberOfKeys: 1,
+    lua: `
+      local raw = redis.call('GET', KEYS[1])
+      if not raw then
+        return cjson.encode({ status = 'missing' })
+      end
+
+      local data = cjson.decode(raw)
+      data.attempts = (data.attempts or 0) + 1
+
+      if data.attempts > tonumber(ARGV[1]) then
+        redis.call('DEL', KEYS[1])
+        return cjson.encode({ status = 'locked' })
+      end
+
+      redis.call('SET', KEYS[1], cjson.encode(data), 'KEEPTTL')
+      data.status = 'ok'
+      return cjson.encode(data)
+    `,
+  });
+
   // Define custom command for merging enum data atomically
   redis.defineCommand("mergeEnum", {
     numberOfKeys: 1,
@@ -56,6 +83,19 @@ export async function useRedisContext(app, redisSettings) {
         return false;
       }
     },
+    setDataEx: async (key, data, ttlSeconds) => {
+      try {
+        return await redis.set(
+          key,
+          JSON.stringify(data),
+          "EX",
+          ttlSeconds
+        ) === "OK";
+      } catch (err) {
+        dbLogger.error(`Error writing data to redis for key ${key}:`, err);
+        return false;
+      }
+    },
     getData: async (key) => {
       try {
         const result = await redis.get(key);
@@ -63,6 +103,16 @@ export async function useRedisContext(app, redisSettings) {
       } catch (err) {
         dbLogger.error(`Error fetching data from redis for key ${key}:`, err);
         return null;
+      }
+    },
+    consumeAuthState: async (key, maxAttempts) => {
+      try {
+        const result = await redis.consumeAuthState(key, maxAttempts);
+        return result ? JSON.parse(result) : { status: "missing" };
+      } catch (err) {
+        dbLogger.error(`Error consuming auth state for key ${key}:`, err);
+        // Fail closed: a redis error must never be treated as a passed check.
+        return { status: "error" };
       }
     },
     deleteData: async (key) => {

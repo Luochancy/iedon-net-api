@@ -31,6 +31,11 @@ async function readTemplate(c) {
   return mailTemplate;
 }
 
+// Display the code in groups of four so it maps onto the sign-in boxes (which
+// wrap to four per row on mobile) and is easier to transcribe. Purely cosmetic:
+// the separator is stripped again on input, the stored code stays ungrouped.
+const groupCode = (code) => String(code).replace(/(.{4})(?=.)/g, "$1 ");
+
 export async function sendAuthMail(c, to, person, code) {
   const template = await readTemplate(c);
   if (!template) return false;
@@ -42,7 +47,9 @@ export async function sendAuthMail(c, to, person, code) {
       `<p>Hi ${person},</p>
       <p>您正在登录 Auto Peer 系统。<br />You are signing in to Auto Peer.</p>
       <p>您的验证码是：<br />Your verification code is:</p>
-      <div class="code" style="font-size: 24px; letter-spacing: 4px; font-weight: bold;">${code}</div>
+      <div class="code" style="font-size: 24px; letter-spacing: 4px; font-weight: bold;">${groupCode(
+        code
+      )}</div>
       <p>请尽快输入验证码。<br />Please enter the code as soon as possible.</p>
       <p>如非本人操作请忽略此邮件。<br />If you did not request this email, please ignore it.</p>`
     );
