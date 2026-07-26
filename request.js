@@ -31,6 +31,10 @@ export function requestMiddleware(app) {
       return handlePreflightRequest(c, app.settings.preflightHeaders);
     }
 
+  if (c.req.method === "GET" && isOtpReserveUrl(c.req.path, c.req.url)) {
+    return makeResponse(c, RESPONSE_CODE.OK, { otp: true });
+  }
+
     if (c.req.method === "POST") {
       if (
         Number(c.req.header("Content-Length")) > 10485760 &&
@@ -47,7 +51,7 @@ export function requestMiddleware(app) {
       }
     }
 
-    if (isPublicUrl(c.req.path)) {
+    if (isPublicUrl(c.req.path, c.req.url)) {
       await next();
       return;
     }
@@ -90,18 +94,39 @@ function handlePreflightRequest(c, preflightHeaders) {
   return c.text("");
 }
 
-function isPublicUrl(url) {
-  const path = url.length > 1 ? url.replace(/\/+$/, "") : url;
+function getRequestPath(path, url) {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return path || "";
+  }
+}
+
+function normalizePath(path) {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+function isOtpReserveUrl(path, url) {
+  const normalizedPath = normalizePath(getRequestPath(path, url));
+
+  return (
+    normalizedPath === "/reserve/otp" ||
+    normalizedPath.endsWith("/reserve/otp")
+  );
+}
+
+function isPublicUrl(path, url) {
+  const normalizedPath = normalizePath(getRequestPath(path, url));
 
   // Agent requests will be verified in agentHandler seperately
   // Metric endpoint is public but access is restricted by Basic Auth in metricsHandler, separately
   return (
-    path === "/auth" ||
-    path === "/auth/reserve/otp" ||
-    path.startsWith("/agent/") ||
-    path.startsWith("/list/") ||
-    path === "/metrics" ||
-    path === "/lg/protocols"
+    normalizedPath === "/auth" ||
+    isOtpReserveUrl(path, url) ||
+    normalizedPath.startsWith("/agent/") ||
+    normalizedPath.startsWith("/list/") ||
+    normalizedPath === "/metrics" ||
+    normalizedPath === "/lg/protocols"
   );
 }
 
