@@ -114,36 +114,60 @@ const handlers = {
           "allowed_policies",
         ],
       });
-      for (let i = 0; i < result.length; i++)
-        routers.push({
-          uuid: result[i].dataValues.uuid,
-          name: result[i].dataValues.name,
-          description: result[i].dataValues.description,
-          location: result[i].dataValues.location,
-          public: !!result[i].dataValues.public,
-          openPeering: !!result[i].dataValues.open_peering,
-          autoPeering: !!result[i].dataValues.auto_peering,
-          sessionCapacity: result[i].dataValues.session_capacity,
-          callbackUrl: result[i].dataValues.callback_url,
-          sessionCount: await c.var.app.models.bgpSessions.count({
-            where: {
-              router: result[i].dataValues.uuid,
-            },
-          }),
-          ipv4: result[i].dataValues.ipv4 || "",
-          ipv6: result[i].dataValues.ipv6 || "",
-          ipv6LinkLocal: result[i].dataValues.ipv6_link_local || "",
-          linkTypes: result[i].dataValues.link_types
-            ? JSON.parse(result[i].dataValues.link_types)
-            : [],
-          extensions: result[i].dataValues.extensions
-            ? JSON.parse(result[i].dataValues.extensions)
-            : [],
-          agentSecret: result[i].dataValues.agent_secret || "",
-          allowedPolicies: result[i].dataValues.allowed_policies
-            ? JSON.parse(result[i].dataValues.allowed_policies)
-            : [],
-        });
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < result.length; i += BATCH_SIZE) {
+        const batch = result.slice(i, i + BATCH_SIZE);
+        const routerData = [];
+
+        const sessionCountPromises = batch.map((r) =>
+          c.var.app.models.bgpSessions.count({
+            where: { router: r.dataValues.uuid },
+          }).then((count) => {
+            r._sessionCount = count;
+          })
+        );
+
+        const metricPromises = batch.map((r) =>
+          c.var.app.redis.getData(`router:${r.dataValues.uuid}`).then((metric) => {
+            r._metric = metric || null;
+          })
+        );
+
+        await Promise.allSettled([
+          ...sessionCountPromises,
+          ...metricPromises,
+        ]);
+
+        for (const r of batch) {
+          routerData.push({
+            uuid: r.dataValues.uuid,
+            name: r.dataValues.name,
+            description: r.dataValues.description,
+            location: r.dataValues.location,
+            public: !!r.dataValues.public,
+            openPeering: !!r.dataValues.open_peering,
+            autoPeering: !!r.dataValues.auto_peering,
+            sessionCapacity: r.dataValues.session_capacity,
+            callbackUrl: r.dataValues.callback_url,
+            sessionCount: r._sessionCount || 0,
+            ipv4: r.dataValues.ipv4 || "",
+            ipv6: r.dataValues.ipv6 || "",
+            ipv6LinkLocal: r.dataValues.ipv6_link_local || "",
+            linkTypes: r.dataValues.link_types
+              ? JSON.parse(r.dataValues.link_types)
+              : [],
+            extensions: r.dataValues.extensions
+              ? JSON.parse(r.dataValues.extensions)
+              : [],
+            agentSecret: r.dataValues.agent_secret || "",
+            allowedPolicies: r.dataValues.allowed_policies
+              ? JSON.parse(r.dataValues.allowed_policies)
+              : [],
+            metric: r._metric,
+          });
+        }
+        routers.push(...routerData);
+      }
     } catch (error) {
       c.var.app.logger.getLogger("app").error(error);
     }
@@ -177,7 +201,6 @@ const handlers = {
       typeof autoPeering !== "boolean" ||
       typeof agentSecret !== "string" ||
       nullOrEmpty(name) ||
-      nullOrEmpty(agentSecret) ||
       nullOrEmpty(sessionCapacity) ||
       typeof sessionCapacity !== "number" ||
       typeof callbackUrl !== "string" ||
@@ -198,6 +221,11 @@ const handlers = {
       (type !== "add" && type !== "update")
     ) {
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+    }
+
+    if (type === "add") {
+      if (nullOrEmpty(agentSecret))
+        return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
     }
 
     if (type === "update") {
@@ -221,8 +249,15 @@ const handlers = {
         linkTypes: JSON.stringify(linkTypes),
         extensions: JSON.stringify(extensions),
         allowedPolicies: JSON.stringify(allowedPolicies),
-        agentSecret,
       };
+
+      if (type === "update" && !nullOrEmpty(agentSecret)) {
+        model.agentSecret = agentSecret;
+      }
+
+      if (type === "add") {
+        model.agentSecret = agentSecret;
+      }
 
       if (type === "update") {
         await c.var.app.models.routers.update(model, {
