@@ -63,17 +63,66 @@ async function listProtocols(c) {
   return makeResponse(c, RESPONSE_CODE.OK, { routers: routerResults });
 }
 
-// GET /lg/protocols/:name — authenticated, verify ASN ownership
+async function ensurePublicRouter(c, routerUuid) {
+  return await c.var.app.models.routers.findOne({
+    attributes: ["uuid"],
+    where: { uuid: routerUuid, public: true },
+  });
+}
+
+async function fetchProtocolDetailFromRouter(c, routerUuid, name) {
+  const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
+  if (!url || !agentSecret) return { unavailable: true, data: null };
+
+  const response = await c.var.app.fetch.get(
+    `${url}/lg/protocols/${encodeURIComponent(name)}`,
+    "json"
+  );
+  if (!response || response.status !== 200 || !response.data) {
+    c.var.app.logger
+      .getLogger("fetch")
+      .error(
+        `Failed to fetch /lg/protocols/${name} from router ${routerUuid}: ${
+          response ? `HTTP ${response.status}` : "Null response"
+        }`
+      );
+    return { unavailable: false, data: null };
+  }
+
+  return { unavailable: false, data: response.data.data || response.data };
+}
+
+// GET /lg/protocols/:name[?router=<uuid>] — authenticated, any logged-in user
 async function getProtocolDetail(c) {
   const name = c.req.param("name");
   if (!name) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
 
-  const userAsn = Number(c.var.state.asn);
+  const state = c.var.state;
+  if (!state) return makeResponse(c, RESPONSE_CODE.UNAUTHORIZED);
+
+  const requestedRouter = c.req.query("router");
+
+  if (requestedRouter) {
+    try {
+      const router = await ensurePublicRouter(c, requestedRouter);
+      if (!router) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+
+      const result = await fetchProtocolDetailFromRouter(c, requestedRouter, name);
+      if (result.unavailable) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+      if (!result.data) return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+      return makeResponse(c, RESPONSE_CODE.OK, result.data);
+    } catch (error) {
+      c.var.app.logger
+        .getLogger("fetch")
+        .error(`Failed to fetch /lg/protocols/${name} from router ${requestedRouter}: ${error}`);
+      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    }
+  }
 
   let session;
   try {
     session = await c.var.app.models.bgpSessions.findOne({
-      attributes: ["asn", "router", "interface"],
+      attributes: ["router", "interface"],
       where: { interface: name },
     });
   } catch (error) {
@@ -83,35 +132,12 @@ async function getProtocolDetail(c) {
 
   if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
 
-  // Verify the session belongs to the logged-in user's ASN
-  if (session.dataValues.asn !== userAsn) {
-    return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
-  }
-
   const routerUuid = session.dataValues.router;
-  const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
-  if (!url || !agentSecret) {
-    return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
-  }
-
   try {
-    const response = await c.var.app.fetch.get(
-      `${url}/lg/protocols/${encodeURIComponent(name)}`,
-      "json"
-    );
-    if (!response || response.status !== 200 || !response.data) {
-      c.var.app.logger
-        .getLogger("fetch")
-        .error(
-          `Failed to fetch /lg/protocols/${name} from router ${routerUuid}: ${
-            response ? `HTTP ${response.status}` : "Null response"
-          }`
-        );
-      return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
-    }
-
-    const data = response.data.data || response.data;
-    return makeResponse(c, RESPONSE_CODE.OK, data);
+    const result = await fetchProtocolDetailFromRouter(c, routerUuid, name);
+    if (result.unavailable) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
+    if (!result.data) return makeResponse(c, RESPONSE_CODE.ROUTER_OPERATION_FAILED);
+    return makeResponse(c, RESPONSE_CODE.OK, result.data);
   } catch (error) {
     c.var.app.logger
       .getLogger("fetch")
@@ -245,15 +271,9 @@ async function handlePing(c) {
 
   const routerUuid = c.req.query("router");
   if (routerUuid) {
-    // Verify user has a session on this router
-    const userAsn = Number(c.var.state.asn);
-    try {
-      const session = await c.var.app.models.bgpSessions.findOne({
-        attributes: ["router"],
-        where: { asn: userAsn, router: routerUuid },
-      });
-      if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
-    } catch (_) {}
+    const router = await ensurePublicRouter(c, routerUuid);
+    if (!router) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+
     const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
     if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
     try {
@@ -327,15 +347,9 @@ async function handleTraceroute(c) {
 
   const routerUuid = c.req.query("router");
   if (routerUuid) {
-    // Verify user has a session on this router
-    const userAsn = Number(c.var.state.asn);
-    try {
-      const session = await c.var.app.models.bgpSessions.findOne({
-        attributes: ["router"],
-        where: { asn: userAsn, router: routerUuid },
-      });
-      if (!session) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
-    } catch (_) {}
+    const router = await ensurePublicRouter(c, routerUuid);
+    if (!router) return makeResponse(c, RESPONSE_CODE.NOT_FOUND);
+
     const [url, agentSecret] = await getRouterCbParams(c, routerUuid);
     if (!url || !agentSecret) return makeResponse(c, RESPONSE_CODE.ROUTER_NOT_AVAILABLE);
     try {
