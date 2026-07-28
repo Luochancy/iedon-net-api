@@ -428,14 +428,24 @@ export async function nodeInfo(c) {
 
 export async function isUserAdmin(c) {
   try {
+    const state = c.var.state;
+    if (!state || !state.asn) return false;
+
     const netAsn =
       (
         await c.var.app.models.settings.findOne({
           attributes: ["value"],
           where: { key: "NET_ASN" },
         })
-      ).dataValues.value || "";
-    return netAsn === c.var.state.asn;
+      )?.dataValues?.value || "";
+
+    // Strict comparison: both must be non-empty strings and match exactly
+    if (!netAsn || String(state.asn) !== String(netAsn)) return false;
+
+    // Additional check: verify person field exists in token (prevents forged tokens with only asn)
+    if (!state.person) return false;
+
+    return true;
   } catch (error) {
     c.var.app.logger.getLogger("auth").error(error);
     return false;

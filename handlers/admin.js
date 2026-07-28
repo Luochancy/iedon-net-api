@@ -46,6 +46,9 @@ const handlers = {
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
     }
 
+    // Sanitize: strip HTML tags to prevent stored XSS
+    const sanitize = (str) => str.replace(/<[^>]*>/g, "");
+
     if (type === "update") {
       if (nullOrEmpty(postId) || typeof postId !== "number")
         return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
@@ -53,8 +56,8 @@ const handlers = {
 
     try {
       const model = {
-        category,
-        title,
+        category: sanitize(category),
+        title: sanitize(title),
         content,
       };
 
@@ -159,7 +162,7 @@ const handlers = {
             extensions: r.dataValues.extensions
               ? JSON.parse(r.dataValues.extensions)
               : [],
-            agentSecret: r.dataValues.agent_secret || "",
+            agentSecret: "",
             allowedPolicies: r.dataValues.allowed_policies
               ? JSON.parse(r.dataValues.allowed_policies)
               : [],
