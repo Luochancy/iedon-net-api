@@ -101,7 +101,7 @@ export default {
           appenders: ['fetch']
         },
         auth: {
-          level: 'info',
+          level: 'debug',
           appenders: ['auth']
         },
       }

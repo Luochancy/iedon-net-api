@@ -332,9 +332,14 @@ async function request(c) {
       c.var.app.settings.authHandler.stateSignSecret,
       c.var.app.settings.authHandler.stateSignOptions
     );
-    if (authMethod >= authState.availableAuthMethods.length)
+    if (authMethod >= authState.availableAuthMethods.length) {
+      c.var.app.logger.getLogger("auth").error(
+        `AS${authState.asn} - Requested auth method index ${authMethod} is out of range.`
+      );
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
+    }
   } catch {
+    c.var.app.logger.getLogger("auth").error("Rejected invalid auth state during request.");
     return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
   }
 
@@ -449,15 +454,22 @@ async function challenge(c) {
     if (pendingState.status === "locked")
       c.var.app.logger
         .getLogger("auth")
-        .warn(
+        .error(
           `AS${authState.asn} - Authentication state discarded after ${AUTH_STATE_MAX_ATTEMPTS} failed attempts.`
         );
+    else
+      c.var.app.logger.getLogger("auth").error(
+        `AS${authState.asn} - Authentication state not redeemable (${pendingState.status}).`
+      );
     return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
   }
 
   // Defense in depth: the id is unguessable, but never let a state be redeemed
   // for an ASN other than the one it was issued for.
   if (String(pendingState.asn) !== String(authState.asn)) {
+    c.var.app.logger.getLogger("auth").error(
+      `AS${authState.asn} - Authentication state ASN mismatch.`
+    );
     await c.var.app.redis.deleteData(stateKey);
     return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
   }
@@ -482,6 +494,10 @@ async function challenge(c) {
       });
       if (await bcryptCompare(rawPassword, hash.dataValues.password))
         authResult = true;
+      else
+        c.var.app.logger.getLogger("auth").debug(
+          `AS${authState.asn} - Password authentication rejected.`
+        );
     } catch (error) {
       c.var.app.logger.getLogger("app").error(error);
     }
@@ -490,6 +506,10 @@ async function challenge(c) {
     if (nullOrEmpty(authData) || typeof authData !== "string")
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
     if (authData.trim().toUpperCase() === code.toUpperCase()) authResult = true;
+    else
+      c.var.app.logger.getLogger("auth").debug(
+        `AS${authState.asn} - Email verification code rejected.`
+      );
   } else if (type === SupportedAuthType.PGP_ASCII_ARMORED_CLEAR_SIGN) {
     authMethod = "pgp";
     if (
@@ -525,7 +545,9 @@ async function challenge(c) {
 
         authResult = await verified; // throws on invalid signature
       } catch {
-        // supress invalid signature exception
+        c.var.app.logger.getLogger("auth").debug(
+          `AS${authState.asn} - PGP signature verification rejected.`
+        );
       }
     }
   } else if (type === SupportedAuthType.SSH) {
@@ -533,7 +555,7 @@ async function challenge(c) {
     if (nullOrEmpty(authData) || typeof authData !== "string")
       return makeResponse(c, RESPONSE_CODE.BAD_REQUEST);
 
-    const signature = authData.trim();
+    const signature = authData.replace(/\r\n/g, "\n");
     const publicKey = authState.authMethod.data.trim(); // "ssh-ed25519 AAAA... comment"
     const challengeText = code; // code is the original Base64 challenge text
     const namespace = "peerhub"; // must match the namespace the client signs with (-n peerhub)
@@ -581,9 +603,15 @@ async function challenge(c) {
       });
 
       if (output.code === 0) authResult = true;
-      else c.var.app.logger.getLogger("auth").info(`SSH signature verify rejected for AS${authState.asn}: ${output.stderr.trim()}`);
+      else c.var.app.logger.getLogger("auth").error(
+        `SSH signature verify rejected for AS${authState.asn} (exit ${output.code}): ${
+          [output.stderr.trim(), output.stdout.trim()].filter(Boolean).join(" | ") || "<no output>"
+        }`
+      );
     } catch (error) {
-      c.var.app.logger.getLogger("auth").error(`SSH signature verify failed: ${error.message}`);
+      c.var.app.logger.getLogger("auth").error(
+        `SSH signature verify failed for AS${authState.asn}: ${error.stack || error.message}`
+      );
     } finally {
       // Clean up temp files
       try { await unlink(sigFile); } catch {}
