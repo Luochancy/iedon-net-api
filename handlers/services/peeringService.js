@@ -761,6 +761,29 @@ export async function getPeeringSession(c) {
   const probe = probeSnapshots.get(sessionUuid);
   session.probe = probe || createEmptyProbeSnapshot();
 
+  // Backfill lastError from Redis BGP status when DB has no error recorded.
+  // BIRD reports protocol-level errors (e.g. "Neighbor lost") that the agent
+  // stores in Redis but only writes to the DB on session status transitions.
+  if (!session.lastError) {
+    try {
+      const enumData = await c.var.app.redis.getData(`enum:${session.asn}`);
+      if (enumData) {
+        const protocols = enumData[sessionUuid];
+        if (protocols && Array.isArray(protocols)) {
+          for (const proto of protocols) {
+            const info = proto.info || "";
+            if (info.toLowerCase().startsWith("error")) {
+              session.lastError = info;
+              break;
+            }
+          }
+        }
+      }
+    } catch {
+      // Redis read failure is non-fatal
+    }
+  }
+
   return makeResponse(c, RESPONSE_CODE.OK, { session });
 }
 
