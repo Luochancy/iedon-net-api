@@ -14,6 +14,7 @@ See the LICENSE file in the project root for details.
 */
 import { nullOrEmpty } from "../common/helper.js";
 import { makeResponse, RESPONSE_CODE } from "../common/packet.js";
+import sequelize from "sequelize";
 
 /*
     "REQUEST": {
@@ -87,67 +88,71 @@ async function routers(c) {
         "ipv6_link_local",
         "link_types",
         "extensions",
-        "allowed_policies"
+        "allowed_policies",
       ],
       where: {
         public: true,
       },
     });
 
-    // Prepare router data without session counts
-    const routerData = result.map((router) => ({
-      uuid: router.dataValues.uuid,
-      name: router.dataValues.name,
-      description: router.dataValues.description,
-      location: router.dataValues.location,
-      openPeering: !!router.dataValues.open_peering,
-      autoPeering: !!router.dataValues.auto_peering,
-      sessionCapacity: router.dataValues.session_capacity,
-      sessionCount: 0, // Will be filled later
-      ipv4: router.dataValues.ipv4 || "",
-      ipv6: router.dataValues.ipv6 || "",
-      ipv6LinkLocal: router.dataValues.ipv6_link_local || "",
-      linkTypes: router.dataValues.link_types
-        ? JSON.parse(router.dataValues.link_types)
-        : [],
-      extensions: router.dataValues.extensions
-        ? JSON.parse(router.dataValues.extensions)
-        : [],
-      allowedPolicies: router.dataValues.allowed_policies
-        ? JSON.parse(router.dataValues.allowed_policies)
-        : []
-    }));
-
-    // Process in batches of 5 for session counting
-    const batchSize = 5;
-    for (let i = 0; i < routerData.length; i += batchSize) {
-      const batch = routerData.slice(i, i + batchSize);
-      const sessionCountPromises = batch.map((router) =>
-        c.var.app.models.bgpSessions
-          .count({
-            where: {
-              router: router.uuid,
-            },
-          })
-          .then((count) => {
-            router.sessionCount = count;
-          })
-      );
-
-      const metricPromises = batch.map((router) =>
-        c.var.app.redis.getData(`router:${router.uuid}`).then((metric) => {
-          if (metric) router.metric = metric;
-        })
-      );
-
-      // Wait for the current batch to complete
-      await Promise.allSettled([
-        Promise.allSettled(sessionCountPromises),
-        Promise.allSettled(metricPromises),
-      ]);
+    // Batch session count via GROUP BY
+    const routerUuids = result.map((r) => r.dataValues.uuid);
+    const sessionCounts = new Map();
+    if (routerUuids.length > 0) {
+      const counts = await c.var.app.models.bgpSessions.findAll({
+        attributes: [
+          "router",
+          [sequelize.fn("COUNT", sequelize.col("uuid")), "cnt"],
+        ],
+        where: { router: { [sequelize.Op.in]: routerUuids } },
+        group: ["router"],
+        raw: true,
+      });
+      for (const row of counts) {
+        sessionCounts.set(row.router, Number(row.cnt));
+      }
     }
 
-    routers.push(...routerData);
+    // Batch Redis metric fetches
+    const metricPromises = routerUuids.map((uuid) =>
+      c.var.app.redis
+        .getData(`router:${uuid}`)
+        .then((m) => [uuid, m || null])
+    );
+    const metricResults = await Promise.allSettled(metricPromises);
+    const metrics = new Map();
+    for (const r of metricResults) {
+      if (r.status === "fulfilled") metrics.set(r.value[0], r.value[1]);
+    }
+
+    for (const router of result) {
+      const uuid = router.dataValues.uuid;
+      const data = {
+        uuid,
+        name: router.dataValues.name,
+        description: router.dataValues.description,
+        location: router.dataValues.location,
+        openPeering: !!router.dataValues.open_peering,
+        autoPeering: !!router.dataValues.auto_peering,
+        sessionCapacity: router.dataValues.session_capacity,
+        sessionCount: sessionCounts.get(uuid) || 0,
+        ipv4: router.dataValues.ipv4 || "",
+        ipv6: router.dataValues.ipv6 || "",
+        ipv6LinkLocal: router.dataValues.ipv6_link_local || "",
+        linkTypes: router.dataValues.link_types
+          ? JSON.parse(router.dataValues.link_types)
+          : [],
+        extensions: router.dataValues.extensions
+          ? JSON.parse(router.dataValues.extensions)
+          : [],
+        allowedPolicies: router.dataValues.allowed_policies
+          ? JSON.parse(router.dataValues.allowed_policies)
+          : [],
+      };
+      const metric = metrics.get(uuid);
+      if (metric) data.metric = metric;
+      routers.push(data);
+    }
   } catch (error) {
     c.var.app.logger.getLogger("app").error(error);
   }
@@ -221,32 +226,30 @@ async function post(c, postId) {
 async function config(c) {
   let config = null;
   try {
-    const netAsn = await c.var.app.models.settings.findOne({
-      attributes: ["value"],
-      where: { key: "NET_ASN" },
+    const rows = await c.var.app.models.settings.findAll({
+      attributes: ["key", "value"],
+      where: {
+        key: {
+          [sequelize.Op.in]: [
+            "NET_ASN",
+            "NET_NAME",
+            "NET_DESC",
+            "FOOTER_TEXT",
+            "MAINTENANCE_TEXT",
+          ],
+        },
+      },
     });
-    const netName = await c.var.app.models.settings.findOne({
-      attributes: ["value"],
-      where: { key: "NET_NAME" },
-    });
-    const netDesc = await c.var.app.models.settings.findOne({
-      attributes: ["value"],
-      where: { key: "NET_DESC" },
-    });
-    const footerText = await c.var.app.models.settings.findOne({
-      attributes: ["value"],
-      where: { key: "FOOTER_TEXT" },
-    });
-    const maintenanceText = await c.var.app.models.settings.findOne({
-      attributes: ["value"],
-      where: { key: "MAINTENANCE_TEXT" },
-    });
+    const map = {};
+    for (const row of rows) {
+      map[row.dataValues.key] = row.dataValues.value || "";
+    }
     config = {
-      netAsn: netAsn.dataValues?.value || "",
-      netName: netName.dataValues?.value || "",
-      netDesc: netDesc.dataValues?.value || "",
-      footerText: footerText.dataValues?.value || "",
-      maintenanceText: maintenanceText.dataValues?.value || "",
+      netAsn: map.NET_ASN || "",
+      netName: map.NET_NAME || "",
+      netDesc: map.NET_DESC || "",
+      footerText: map.FOOTER_TEXT || "",
+      maintenanceText: map.MAINTENANCE_TEXT || "",
     };
   } catch (error) {
     c.var.app.logger.getLogger("app").error(error);

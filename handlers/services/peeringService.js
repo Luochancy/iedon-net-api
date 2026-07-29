@@ -426,24 +426,32 @@ export async function nodeInfo(c) {
   return makeResponse(c, RESPONSE_CODE.OK, response.data.data);
 }
 
+// Cache for NET_ASN to avoid querying the DB on every isUserAdmin() call.
+// Invalidated when the admin updates the config.
+let _cachedNetAsn = null;
+
+export function invalidateNetAsnCache() {
+  _cachedNetAsn = null;
+}
+
 export async function isUserAdmin(c) {
   try {
     const state = c.var.state;
     if (!state || !state.asn) return false;
 
-    const rawNetAsn =
-      (
-        await c.var.app.models.settings.findOne({
-          attributes: ["value"],
-          where: { key: "NET_ASN" },
-        })
-      )?.dataValues?.value || "";
+    if (_cachedNetAsn === null) {
+      const rawNetAsn =
+        (
+          await c.var.app.models.settings.findOne({
+            attributes: ["value"],
+            where: { key: "NET_ASN" },
+          })
+        )?.dataValues?.value || "";
+      _cachedNetAsn = String(rawNetAsn).replace(/^AS/i, "").trim();
+    }
 
-    // Strip "AS" prefix if present, normalize to plain number string
-    const netAsn = String(rawNetAsn).replace(/^AS/i, "").trim();
     const tokenAsn = String(state.asn).replace(/^AS/i, "").trim();
-
-    if (!netAsn || !tokenAsn || netAsn !== tokenAsn) return false;
+    if (!_cachedNetAsn || !tokenAsn || _cachedNetAsn !== tokenAsn) return false;
 
     return true;
   } catch (error) {

@@ -19,7 +19,9 @@ import {
   queryPeeringSession,
   generalAgentHandler,
   isUserAdmin,
+  invalidateNetAsnCache,
 } from "./services/peeringService.js";
+import sequelize from "sequelize";
 
 export default async function (c) {
   if (!(await isUserAdmin(c))) {
@@ -117,59 +119,65 @@ const handlers = {
           "allowed_policies",
         ],
       });
-      const BATCH_SIZE = 50;
-      for (let i = 0; i < result.length; i += BATCH_SIZE) {
-        const batch = result.slice(i, i + BATCH_SIZE);
-        const routerData = [];
 
-        const sessionCountPromises = batch.map((r) =>
-          c.var.app.models.bgpSessions.count({
-            where: { router: r.dataValues.uuid },
-          }).then((count) => {
-            r._sessionCount = count;
-          })
-        );
-
-        const metricPromises = batch.map((r) =>
-          c.var.app.redis.getData(`router:${r.dataValues.uuid}`).then((metric) => {
-            r._metric = metric || null;
-          })
-        );
-
-        await Promise.allSettled([
-          ...sessionCountPromises,
-          ...metricPromises,
-        ]);
-
-        for (const r of batch) {
-          routerData.push({
-            uuid: r.dataValues.uuid,
-            name: r.dataValues.name,
-            description: r.dataValues.description,
-            location: r.dataValues.location,
-            public: !!r.dataValues.public,
-            openPeering: !!r.dataValues.open_peering,
-            autoPeering: !!r.dataValues.auto_peering,
-            sessionCapacity: r.dataValues.session_capacity,
-            callbackUrl: r.dataValues.callback_url,
-            sessionCount: r._sessionCount || 0,
-            ipv4: r.dataValues.ipv4 || "",
-            ipv6: r.dataValues.ipv6 || "",
-            ipv6LinkLocal: r.dataValues.ipv6_link_local || "",
-            linkTypes: r.dataValues.link_types
-              ? JSON.parse(r.dataValues.link_types)
-              : [],
-            extensions: r.dataValues.extensions
-              ? JSON.parse(r.dataValues.extensions)
-              : [],
-            agentSecret: "",
-            allowedPolicies: r.dataValues.allowed_policies
-              ? JSON.parse(r.dataValues.allowed_policies)
-              : [],
-            metric: r._metric,
-          });
+      // Batch session count via GROUP BY instead of N individual queries
+      const routerUuids = result.map((r) => r.dataValues.uuid);
+      const sessionCounts = new Map();
+      if (routerUuids.length > 0) {
+        const counts = await c.var.app.models.bgpSessions.findAll({
+          attributes: [
+            "router",
+            [sequelize.fn("COUNT", sequelize.col("uuid")), "cnt"],
+          ],
+          where: { router: { [sequelize.Op.in]: routerUuids } },
+          group: ["router"],
+          raw: true,
+        });
+        for (const row of counts) {
+          sessionCounts.set(row.router, Number(row.cnt));
         }
-        routers.push(...routerData);
+      }
+
+      // Batch Redis metric fetches
+      const metricPromises = routerUuids.map((uuid) =>
+        c.var.app.redis
+          .getData(`router:${uuid}`)
+          .then((m) => [uuid, m || null])
+      );
+      const metricResults = await Promise.allSettled(metricPromises);
+      const metrics = new Map();
+      for (const r of metricResults) {
+        if (r.status === "fulfilled") metrics.set(r.value[0], r.value[1]);
+      }
+
+      for (const r of result) {
+        const uuid = r.dataValues.uuid;
+        routers.push({
+          uuid,
+          name: r.dataValues.name,
+          description: r.dataValues.description,
+          location: r.dataValues.location,
+          public: !!r.dataValues.public,
+          openPeering: !!r.dataValues.open_peering,
+          autoPeering: !!r.dataValues.auto_peering,
+          sessionCapacity: r.dataValues.session_capacity,
+          callbackUrl: r.dataValues.callback_url,
+          sessionCount: sessionCounts.get(uuid) || 0,
+          ipv4: r.dataValues.ipv4 || "",
+          ipv6: r.dataValues.ipv6 || "",
+          ipv6LinkLocal: r.dataValues.ipv6_link_local || "",
+          linkTypes: r.dataValues.link_types
+            ? JSON.parse(r.dataValues.link_types)
+            : [],
+          extensions: r.dataValues.extensions
+            ? JSON.parse(r.dataValues.extensions)
+            : [],
+          agentSecret: r.dataValues.agent_secret || "",
+          allowedPolicies: r.dataValues.allowed_policies
+            ? JSON.parse(r.dataValues.allowed_policies)
+            : [],
+          metric: metrics.get(uuid),
+        });
       }
     } catch (error) {
       c.var.app.logger.getLogger("app").error(error);
@@ -202,7 +210,7 @@ const handlers = {
       typeof _public !== "boolean" ||
       typeof openPeering !== "boolean" ||
       typeof autoPeering !== "boolean" ||
-      typeof agentSecret !== "string" ||
+      (type === "add" && typeof agentSecret !== "string") ||
       nullOrEmpty(name) ||
       nullOrEmpty(sessionCapacity) ||
       typeof sessionCapacity !== "number" ||
@@ -330,6 +338,7 @@ const handlers = {
         { value: maintenanceText || null },
         { where: { key: "MAINTENANCE_TEXT" } }
       );
+      invalidateNetAsnCache();
     } catch (error) {
       c.var.app.logger.getLogger("app").error(error);
       return makeResponse(c, RESPONSE_CODE.SERVER_ERROR);
