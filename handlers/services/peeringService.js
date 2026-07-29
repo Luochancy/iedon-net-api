@@ -431,7 +431,7 @@ export async function isUserAdmin(c) {
     const state = c.var.state;
     if (!state || !state.asn) return false;
 
-    const netAsn =
+    const rawNetAsn =
       (
         await c.var.app.models.settings.findOne({
           attributes: ["value"],
@@ -439,11 +439,11 @@ export async function isUserAdmin(c) {
         })
       )?.dataValues?.value || "";
 
-    // Strict comparison: both must be non-empty strings and match exactly
-    if (!netAsn || String(state.asn) !== String(netAsn)) return false;
+    // Strip "AS" prefix if present, normalize to plain number string
+    const netAsn = String(rawNetAsn).replace(/^AS/i, "").trim();
+    const tokenAsn = String(state.asn).replace(/^AS/i, "").trim();
 
-    // Additional check: verify person field exists in token (prevents forged tokens with only asn)
-    if (!state.person) return false;
+    if (!netAsn || !tokenAsn || netAsn !== tokenAsn) return false;
 
     return true;
   } catch (error) {
