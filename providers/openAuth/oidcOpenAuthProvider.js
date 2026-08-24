@@ -64,17 +64,13 @@ export class OidcOpenAuthProvider extends DefaultOpenAuthProvider {
 
       if (!tokenResp.ok) {
         const text = await tokenResp.text().catch(() => '');
-        const msg = `OIDC token exchange failed: HTTP ${tokenResp.status} ${text}`;
-        this.logger.error(msg);
-        console.error(msg);
+        this.logger.error(`OIDC token exchange failed: HTTP ${tokenResp.status} ${text}`);
         return false;
       }
 
       const tokenData = await tokenResp.json();
       if (!tokenData.id_token) {
-        const msg = 'OIDC token response missing id_token';
-        this.logger.error(msg);
-        console.error(msg);
+        this.logger.error('OIDC token response missing id_token');
         return false;
       }
 
@@ -86,29 +82,24 @@ export class OidcOpenAuthProvider extends DefaultOpenAuthProvider {
       });
 
       // 4. Extract DN42 claims
-      console.error('OIDC id_token claims:', JSON.stringify(payload));
       let asn = payload.dn42;
-      // dn42 claim may be a string/number or an object like { asn: "424242xxxx" }
+      // dn42 claim may be a string/number or an object like { asn: 424242xxxx }
       if (typeof asn === 'object' && asn !== null) {
         asn = asn.asn || asn.number || asn.id || JSON.stringify(asn);
       }
       if (!asn) {
         const msg = 'OIDC id_token missing dn42 claim';
         this.logger.error(msg);
-        console.error(msg);
         return false;
       }
 
-      console.error(`OIDC authentication successful for ASN ${asn}`);
       return {
         asn: String(asn),
         person: payload.name || payload.preferred_username || '',
         email: payload.email || '',
       };
     } catch (error) {
-      const msg = `OIDC authentication failed: ${error.message}`;
-      this.logger.error(msg);
-      console.error(msg);
+      this.logger.error(`OIDC authentication failed: ${error.message}`);
       return false;
     }
   }
