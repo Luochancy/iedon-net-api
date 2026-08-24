@@ -10,6 +10,48 @@ See LICENSE in the project root.
 */
 import { makeResponse, RESPONSE_CODE } from "../common/packet.js";
 import { getRouterCbParams } from "./services/peeringService.js";
+import net from "net";
+
+// ── Rate limiting (per-ASN, in-memory sliding window) ──
+const RATE_LIMIT_MAX = 8;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateLimitMap = new Map(); // asn -> number[] (timestamps)
+
+function checkRateLimit(asn) {
+  const now = Date.now();
+  const key = String(asn);
+  let timestamps = rateLimitMap.get(key);
+  if (!timestamps) {
+    timestamps = [];
+    rateLimitMap.set(key, timestamps);
+  }
+  // Remove expired entries
+  while (timestamps.length > 0 && timestamps[0] <= now - RATE_LIMIT_WINDOW_MS) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= RATE_LIMIT_MAX) {
+    return { limited: true, retryAfter: Math.ceil((timestamps[0] + RATE_LIMIT_WINDOW_MS - now) / 1000) };
+  }
+  timestamps.push(now);
+  return { limited: false };
+}
+
+// ── DN42 address validation ──
+// IPv4: 172.20.0.0/14 (172.20.0.0 - 172.23.255.255)
+// IPv6: fd00::/8
+function isDn42Address(target) {
+  if (net.isIPv4(target)) {
+    const parts = target.split(".").map(Number);
+    return parts[0] === 172 && parts[1] >= 20 && parts[1] <= 23;
+  }
+  if (net.isIPv6(target)) {
+    // Normalize: first hextet determines fd00::/8
+    const normalized = target.toLowerCase().replace(/^::/, "0::");
+    const firstHextet = normalized.split(":")[0].padStart(4, "0");
+    return firstHextet.startsWith("fd");
+  }
+  return false;
+}
 
 // GET /lg/protocols — public, aggregate from all public routers
 async function listProtocols(c) {
@@ -269,6 +311,18 @@ async function handlePing(c) {
   const target = c.req.query("target");
   if (!target) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST, null, "Missing 'target' query parameter");
 
+  // Rate limit check
+  const rateLimit = checkRateLimit(c.var.state.asn);
+  if (rateLimit.limited) {
+    c.header("Retry-After", String(rateLimit.retryAfter));
+    return c.status(429).json({ code: 429, message: `Rate limit exceeded. Try again in ${rateLimit.retryAfter}s.`, data: null });
+  }
+
+  // DN42 IP check
+  if (!isDn42Address(target)) {
+    return c.status(403).json({ code: 403, message: "Target must be a DN42 address (172.20.0.0/14 or fd00::/8)", data: null });
+  }
+
   const routerUuid = c.req.query("router");
   if (routerUuid) {
     const router = await ensurePublicRouter(c, routerUuid);
@@ -344,6 +398,18 @@ async function handlePing(c) {
 async function handleTraceroute(c) {
   const target = c.req.query("target");
   if (!target) return makeResponse(c, RESPONSE_CODE.BAD_REQUEST, null, "Missing 'target' query parameter");
+
+  // Rate limit check
+  const rateLimit = checkRateLimit(c.var.state.asn);
+  if (rateLimit.limited) {
+    c.header("Retry-After", String(rateLimit.retryAfter));
+    return c.status(429).json({ code: 429, message: `Rate limit exceeded. Try again in ${rateLimit.retryAfter}s.`, data: null });
+  }
+
+  // DN42 IP check
+  if (!isDn42Address(target)) {
+    return c.status(403).json({ code: 403, message: "Target must be a DN42 address (172.20.0.0/14 or fd00::/8)", data: null });
+  }
 
   const routerUuid = c.req.query("router");
   if (routerUuid) {
