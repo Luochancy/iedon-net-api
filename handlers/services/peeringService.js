@@ -670,12 +670,17 @@ export async function setPeeringSession(c, modify = false) {
         } else {
           // Generate UUID for new session
           sessionUuid = randomUUID();
-          
-          // Extract last 6 characters of UUID for interface naming (15 char limit)
-          // Use underscore instead of dash for BIRD compatibility
-          const uuidSuffix = sessionUuid.slice(-6);
-          const asnSuffix = (peerAsn % 100000).toString();
-          ifname = `as${asnSuffix}_${uuidSuffix}`;
+
+          if (_type === "direct" && _data && _data.directLocalIps && _data.directLocalIps.defaultInterface) {
+            // Direct Ethernet: use the physical interface name from agent passthrough
+            ifname = _data.directLocalIps.defaultInterface;
+          } else {
+            // Extract last 6 characters of UUID for interface naming (15 char limit)
+            // Use underscore instead of dash for BIRD compatibility
+            const uuidSuffix = sessionUuid.slice(-6);
+            const asnSuffix = (peerAsn % 100000).toString();
+            ifname = `as${asnSuffix}_${uuidSuffix}`;
+          }
 
           // Check if the session with specific ifname already exists
           const checkIfNameExist = async (interfaceName) => {

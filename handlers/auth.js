@@ -689,7 +689,7 @@ async function open(c) {
   let authResult = false;
   let _person = "";
   let _email = "";
-  const result = authProvider.authenticate(c.var.body.data);
+  const result = await authProvider.authenticate(c.var.body.data);
   if (result) {
     asn = Number(result.asn.trim()) || 0;
     if (!asn) {

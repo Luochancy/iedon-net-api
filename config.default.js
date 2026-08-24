@@ -203,11 +203,19 @@ export default {
   },
 
   openAuthSettings: {
-    providers: [ 'kioubit', 'default' ],
+    providers: [ 'kioubit', 'oidc' ],
     kioubit: {
       myDomain: 'dn42.luocynet.com',
       notAllowed: [ 4242422189 ],
       publicKey: './kioubitAuth.pem'
+    },
+    oidc: {
+      discoveryUrl: 'https://auth.iedon.net/.well-known/openid-configuration',
+      clientId: '',
+      clientSecret: '',
+      redirectUri: 'https://dn42.luocynet.com/openAuth?type=oidc',
+      scope: 'openid profile email dn42',
+      issuer: 'https://auth.iedon.net',
     },
   },
 
